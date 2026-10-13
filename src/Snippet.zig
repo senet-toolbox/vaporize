@@ -1,10 +1,9 @@
 const Vapor = @import("vapor");
 const std = @import("std");
-const Static = Vapor.Static;
-const Box = Static.Box;
-const Text = Static.Text;
-const CtxButton = Static.CtxButton;
-const Icon = Static.Icon;
+const Box = Vapor.Box;
+const Text = Vapor.Text;
+const Button = Vapor.Button;
+const Icon = Vapor.Icon;
 const Color = Vapor.Types.Color;
 
 const Snippet = @This();
@@ -19,8 +18,7 @@ fn copy(snippet: *Snippet, text: []const u8) void {
     Vapor.Clipboard.copy(text);
     snippet.copied = true;
     snippet.copied_text = text;
-    Vapor.cycle();
-    Vapor.registerCtxTimeout("copy_snippet", 500, toggleIcon, .{snippet});
+    Vapor.timeout("copy_snippet", 500, toggleIcon, .{snippet});
 }
 
 fn toggleIcon(snippet: *Snippet) void {
@@ -30,11 +28,11 @@ fn toggleIcon(snippet: *Snippet) void {
 }
 
 pub fn code(snippet: *Snippet, text: []const u8) void {
-    CtxButton(copy, .{ snippet, text })
+    Button(copy, .{ snippet, text })
         .style(&.{
         .visual = .{
-            .border = .simple(.palette(.border_color_light)),
-            .text_color = .palette(.text_color),
+            .border = .simple(.transparentize(.black, 0.2)),
+            .text_color = .black,
             .cursor = .pointer,
             .background = .palette(.background),
             .shadow = .card(.transparentizeHex(.palette(.tint), 0.2)),
@@ -44,10 +42,10 @@ pub fn code(snippet: *Snippet, text: []const u8) void {
         .child_gap = 16,
         .layout = .flex,
         .interactive = .{
-            .hover = .{ .text_color = .palette(.tint), .border = .{ .color = .palette(.tint) } },
+            .hover = .{ .text_color = .palette(.tint), .border = .simple(.palette(.tint)) },
         },
         .position = .relative,
-    })({
+    }).children({
         Text(text)
             .font(16, null, null)
             .ellipsis(.dot)
@@ -65,16 +63,16 @@ pub fn code(snippet: *Snippet, text: []const u8) void {
                 .cursor = .pointer,
             },
             .layout = .center,
-        })({
+        }).children({
             if (snippet.copied and std.mem.eql(u8, text, snippet.copied_text)) {
                 Icon(.check).style(&.{
                     .visual = .{ .font_size = 16 },
-                });
+                }).end();
             } else {
                 Icon(.clipboard).style(&.{
                     .visual = .{ .font_size = 16 }, // we need to fix this to make sure it does not repalce the class of the text below
                     // setting it to 16 results in the Text below being overwritten
-                });
+                }).end();
             }
         });
     });

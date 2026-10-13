@@ -1,30 +1,63 @@
 const std = @import("std");
 const Vapor = @import("vapor");
-const Static = Vapor.Static;
 const Allocator = std.mem.Allocator;
-const Text = Static.Text;
-const Box = Static.Box;
-const Heading = Static.Heading;
-const List = Static.List;
-const ListItem = Static.ListItem;
-const Code = Static.Code;
-const Graphic = Static.Graphic;
-const Image = Static.Image;
-const RedirectLink = Static.RedirectLink;
-const Section = Static.Section;
+const Text = Vapor.Text;
+const Box = Vapor.Box;
+const Heading = Vapor.Heading;
+const List = Vapor.List;
+const ListItem = Vapor.ListItem;
+const Code = Vapor.Code;
+const Graphic = Vapor.Graphic;
+const Image = Vapor.Image;
+const RedirectLink = Vapor.RedirectLink;
+const Stack = Vapor.Stack;
+const Center = Vapor.Center;
+const Section = Vapor.Section;
 const SyntaxHighlighter = @import("ZigParser.zig").SyntaxHighlighter;
 const Snippet = @import("Snippet.zig");
 const ListStyle = Vapor.Types.ListStyle;
-const Button = Static.Button;
+const Button = Vapor.Button;
 const TextField = Vapor.TextField;
 const Label = Vapor.Label;
 const FormComponent = Vapor.Form;
 const SubmitButton = Vapor.SubmitButton;
 const FormParser = @import("Form.zig");
 const ValidationResult = FormParser.ValidationResult;
+const ValidationError = FormParser.ValidationError;
 pub const Form = FormParser.Form;
-pub const generateForm = FormParser.generateForm;
-pub const traverseForm = FormParser.traverseForm;
+pub const Field = @import("Field.zig");
+const DefaultValue = Field.DefaultValue;
+const Switch = @import("Switch.zig");
+pub const generateForm = @import("Form.zig").generateForm;
+const Tooltip = @import("Tooltip.zig");
+const TextArea = @import("TextArea.zig");
+
+// Internal storage uses anyopaque
+const CallbackEntry = struct {
+    func: *const fn (*anyopaque) void,
+    ctx: *anyopaque,
+};
+
+pub fn Condition(comptime T: type) type {
+    return struct {
+        callback: ?*const fn (*T) void = null,
+        value: bool = false,
+        target_field: ?[]const u8 = null,
+
+        // Internal: erases for storage
+        pub fn erased(self: *@This()) CallbackEntry {
+            return .{
+                .func = @ptrCast(self.callback),
+                .ctx = undefined, // or whatever context you need
+            };
+        }
+    };
+}
+
+// Your framework internally does this (once, hidden from user)
+pub fn invokeCallback(entry: CallbackEntry, form_ptr: *anyopaque) void {
+    entry.func(form_ptr);
+}
 
 /// ## The Abstract Syntax Tree (AST)
 ///
@@ -55,6 +88,14 @@ pub const NodeType = enum {
     Table, // <-- NEW
     TableRow, // <-- NEW
     TableCell, // <-- NEW
+    Dropdown,
+    FormSection,
+    Switch,
+    BlockQuote,
+    HorizontalRule,
+    TextArea,
+    RightAligned,
+    StyledContainer,
 };
 
 // // Enum definition for CSS list-style-type property
@@ -150,9 +191,26 @@ pub const Node = struct {
         },
         textfield: struct {
             title: []const u8,
-            type: Vapor.Types.InputTypes = .string,
+            type: FormParser.FieldType = .string,
             err: ?*ValidationResult = null,
             err_index: usize = 0,
+            config: Vapor.Types.TextFieldConfig = .{},
+            default_value: ?DefaultValue = null,
+            placeholder: ?DefaultValue = null,
+        },
+        textarea: struct {
+            title: []const u8,
+            err: ?*ValidationResult = null,
+            err_index: usize = 0,
+        },
+        formsection: struct {
+            title: []const u8,
+        },
+        dropdown: struct {
+            title: []const u8,
+            show: bool = false,
+            tags: []const []const u8 = &.{},
+            err: ?*ValidationResult = null,
         },
         table: struct {
             column_count: usize,
@@ -162,8 +220,22 @@ pub const Node = struct {
             is_header: bool,
         },
         table_cell: struct {
+            first_column: bool = false,
             is_header: bool,
             alignment: TableAlignment,
+        },
+        toggle: struct {
+            title: []const u8,
+            condition: *anyopaque,
+        },
+        block_quote: struct {
+            content: []const u8,
+        },
+        right_aligned: struct {
+            content: []const u8,
+        },
+        styled_container: struct {
+            style_class: []const u8, // "accent", "success", "warning", "user", "assistant"
         },
         none: void,
     },
@@ -186,12 +258,67 @@ const Item = struct {
 };
 
 pub const Self = @This();
-allocator: Allocator,
+var did_init: bool = false;
+allocator: ?Allocator = null,
 root: *Node,
-style_config: StyleConfig,
+style_config: StyleConfig = .{},
+
+pub fn initAnimations() void {
+    Field.new();
+    TextArea.new();
+    Switch.new();
+    Tooltip.new();
+    Tooltip.background = .palette(.danger);
+    Tooltip.alternate_text_color = .white;
+    Tooltip.alternate_background = .palette(.danger);
+    Tooltip.svg_color = .palette(.danger);
+
+    Vapor.injectCSS(
+        \\ input[type="radio"] {
+        \\   appearance: none;
+        \\   -webkit-appearance: none;
+        \\   width: 18px;
+        \\   height: 18px;
+        \\   border: 1px solid #ccc;
+        \\   border-radius: 50%;
+        \\   cursor: pointer;
+        \\   position: relative;
+        \\   transition: border-color 0.2s;
+        \\ }
+        \\ input[type="radio"]::after {
+        \\   content: "";
+        \\   position: absolute;
+        \\   width: 8px;
+        \\   height: 8px;
+        \\   background: rgba(var(--tint));
+        \\   border-radius: 50%;
+        \\   top: 50%;
+        \\   left: 50%;
+        \\   transform: translate(-50%, -50%) scale(0);
+        \\   transition: transform 0.15s ease;
+        \\ }
+        \\ input[type="radio"]:checked {
+        \\   border-color: rgba(var(--tint));
+        \\ }
+        \\ input[type="radio"]:checked::after {
+        \\   transform: translate(-50%, -50%) scale(1);
+        \\ }
+        \\ input[type="radio"]:hover {
+        \\   border-color: rgba(var(--tint));
+        \\ }
+    );
+}
 
 pub fn init(allocator: Allocator, style_config: StyleConfig) !Self {
-    const root = try allocator.create(Node);
+    if (!did_init) {
+        initAnimations();
+        global_style = style_config;
+        did_init = true;
+    }
+    const root = allocator.create(Node) catch |err| {
+        Vapor.printErr("Could Not create Root Node", .{});
+        return err;
+    };
     root.* = .{
         .tag = .Root,
         .data = .{ .none = {} }, // Default to none
@@ -207,7 +334,8 @@ pub fn init(allocator: Allocator, style_config: StyleConfig) !Self {
 
 /// Helper to create a new Node using the arena.
 pub fn createNode(self: *Self, tag: NodeType) !*Node {
-    const node = try self.allocator.create(Node);
+    const allocator = self.allocator orelse return error.AllocatorNotFound;
+    const node = try allocator.create(Node);
     node.* = .{
         .tag = tag,
         .data = .{ .none = {} }, // Default to none
@@ -327,7 +455,7 @@ pub const Parser = struct {
     }
 
     /// Dispatches to the correct block parser based on the current char.
-    fn parseBlock(self: *Parser) !*Node {
+    fn parseBlock(self: *Parser) anyerror!*Node {
         // --- MODIFIED ---
         if (self.isListItemStart()) {
             return try self.parseList(0);
@@ -361,9 +489,114 @@ pub const Parser = struct {
                 _ = self.advance();
                 return self.parseRunBlock();
             },
+            // '>' => {
+            //     _ = self.advance();
+            //     return self.parseBlockQuote();
+            // },
+            '>' => {
+                // Check for right-alignment: >>>
+                if (self.pos + 2 < self.source.len and
+                    self.source[self.pos + 1] == '>' and
+                    self.source[self.pos + 2] == '>')
+                {
+                    _ = self.advance(); // >
+                    _ = self.advance(); // >
+                    _ = self.advance(); // >
+                    return self.parseRightAligned();
+                }
+                // Existing blockquote
+                _ = self.advance();
+                return self.parseBlockQuote();
+            },
+            ':' => {
+                if (self.matchContainerFence()) {
+                    return self.parseStyledContainer();
+                }
+                return self.parseParagraph();
+            },
 
             else => return self.parseParagraph(),
         }
+    }
+
+    fn parseRightAligned(self: *Parser) !*Node {
+        // Skip leading space
+        if (!self.isAtEnd() and self.peek() == ' ') _ = self.advance();
+
+        const node = try self.createNode(.RightAligned);
+        const content = self.consumeSingleLine();
+        try self.parseInlines(node, content);
+        return node;
+    }
+
+    fn matchContainerFence(self: *Parser) bool {
+        return self.pos + 2 < self.source.len and
+            self.source[self.pos] == ':' and
+            self.source[self.pos + 1] == ':' and
+            self.source[self.pos + 2] == ':';
+    }
+
+    fn parseStyledContainer(self: *Parser) !*Node {
+        // Consume opening :::
+        _ = self.advance();
+        _ = self.advance();
+        _ = self.advance();
+
+        // Read style class (e.g., "accent", "user", "assistant")
+        if (!self.isAtEnd() and self.peek() == ' ') _ = self.advance();
+        const class_start = self.pos;
+        while (!self.isAtEnd() and self.peek() != '\n') _ = self.advance();
+        const style_class = std.mem.trim(u8, self.source[class_start..self.pos], " \t");
+
+        if (!self.isAtEnd()) _ = self.advance(); // skip newline
+
+        const node = try self.createNode(.StyledContainer);
+        node.data = .{ .styled_container = .{ .style_class = style_class } };
+
+        // Parse inner blocks until closing :::
+        var last_child: ?*Node = null;
+        while (!self.isAtEnd()) {
+            self.skipBlankLines();
+            if (self.isAtEnd()) break;
+            if (self.matchContainerFence()) {
+                // Consume closing :::
+                _ = self.advance();
+                _ = self.advance();
+                _ = self.advance();
+                // Skip rest of line
+                while (!self.isAtEnd() and self.peek() != '\n') _ = self.advance();
+                if (!self.isAtEnd()) _ = self.advance();
+                break;
+            }
+            const block = try self.parseBlock();
+            if (last_child) |last| {
+                last.next = block;
+            } else {
+                node.child = block;
+            }
+            last_child = block;
+        }
+
+        return node;
+    }
+
+    fn parseBlockQuote(self: *Parser) !*Node {
+        const line_start = self.pos;
+        self.consumeLine(); // Advance pos to the end of the line
+        const line_end = self.pos;
+
+        // Get the content slice
+        const content = std.mem.trim(u8, self.source[line_start..line_end], " \t");
+
+        // Create the BlockQuote node
+        const node = try self.createNode(.BlockQuote);
+
+        // --- MODIFIED ---
+        // Instead of creating one text node, parse the inlines
+        try self.parseInlines(node, content);
+        // ----------------
+
+        return node;
     }
 
     fn parseRunBlock(self: *Parser) !*Node {
@@ -410,7 +643,10 @@ pub const Parser = struct {
         }
 
         const code_end = self.pos;
-        const code_content = self.source[code_start..code_end];
+        const raw_content = self.source[code_start..code_end];
+
+        // Process escape sequences
+        const code_content = try self.processEscapes(raw_content);
 
         // Consume closing fence
         if (self.matchCodeFence()) {
@@ -423,6 +659,7 @@ pub const Parser = struct {
         const node = try self.createNode(.CodeBlock);
         const editor: *SyntaxHighlighter = self.arena.create(SyntaxHighlighter) catch unreachable;
         editor.* = .init(self.arena);
+        editor.scrolling_enabled = true;
         editor.parse(code_content) catch unreachable;
         node.data = .{
             .code_block = .{
@@ -434,7 +671,6 @@ pub const Parser = struct {
 
         return node;
     }
-
     fn matchCodeFence(self: *Parser) bool {
         // Check for three backticks at current position
         return self.pos + 2 < self.source.len and
@@ -528,19 +764,52 @@ pub const Parser = struct {
         const line_start = self.pos;
         self.consumeLine(); // Advance pos to the end of the line
         const line_end = self.pos;
-
         // Get the content slice
-        const content = std.mem.trim(u8, self.source[line_start..line_end], " \t");
+        const raw_content = std.mem.trim(u8, self.source[line_start..line_end], " \t");
+
+        if (std.mem.eql(u8, raw_content, "---")) {
+            const node = try self.createNode(.HorizontalRule);
+            return node;
+        }
+
+        // Process escape sequences
+        const content = try self.processEscapes(raw_content);
 
         // Create the Paragraph node
         const node = try self.createNode(.Paragraph);
-
         // --- MODIFIED ---
         // Instead of creating one text node, parse the inlines
         try self.parseInlines(node, content);
         // ----------------
-
         return node;
+    }
+
+    /// Processes backslash escape sequences in content.
+    /// For example, \| becomes |, \\ becomes \
+    fn processEscapes(self: *Parser, input: []const u8) ![]const u8 {
+        // Quick check: if no backslashes, return as-is
+        if (std.mem.indexOfScalar(u8, input, '\\') == null) {
+            return input;
+        }
+
+        var buffer = std.array_list.Managed(u8).init(self.arena);
+
+        var i: usize = 0;
+        while (i < input.len) {
+            const char = input[i];
+
+            if (char == '\\' and i + 1 < input.len) {
+                // Skip the backslash and add the next character directly
+                i += 1;
+                try buffer.append(input[i]);
+            } else {
+                try buffer.append(char);
+            }
+
+            i += 1;
+        }
+
+        return buffer.items;
     }
     /// Helper to get indentation and list marker info for the current line.
     fn getLineInfo(self: *const Parser) LineInfo {
@@ -975,9 +1244,13 @@ pub const Parser = struct {
                             last_child = text_node;
                         }
 
-                        // 2. Create Code node
+                        // 2. Process escape sequences in code content
+                        const raw_code_content = content[inner_start..inner_end];
+                        const code_content = try self.processEscapes(raw_code_content);
+
+                        // 3. Create Code node
                         const code_node = try self.createNode(.Code);
-                        code_node.data = .{ .code = .{ .content = content[inner_start..inner_end] } };
+                        code_node.data = .{ .code = .{ .content = code_content } };
                         if (last_child) |last| {
                             last.next = code_node;
                         } else {
@@ -985,9 +1258,8 @@ pub const Parser = struct {
                         }
                         last_child = code_node;
 
-                        // 3. NO RECURSION for code blocks.
-
-                        // 4. Move cursor
+                        // 4. NO RECURSION for code blocks.
+                        // 5. Move cursor
                         cursor = outer_end;
                         text_start = cursor;
                     } else {
@@ -1069,12 +1341,17 @@ pub const Parser = struct {
         // Check if line starts with | or contains | before newline
         if (i >= self.source.len) return false;
 
-        // Must start with | for valid table
+        // Must start with | for valid table (but not \|)
         if (self.source[i] != '|') return false;
 
         // Scan the line to ensure it has table structure
         var pipe_count: usize = 0;
         while (i < self.source.len and self.source[i] != '\n') {
+            // Skip escaped pipes
+            if (self.source[i] == '\\' and i + 1 < self.source.len and self.source[i + 1] == '|') {
+                i += 2; // Skip both \ and |
+                continue;
+            }
             if (self.source[i] == '|') pipe_count += 1;
             i += 1;
         }
@@ -1180,19 +1457,28 @@ pub const Parser = struct {
     /// Checks if a line is a separator row (|---|:---:|---:|)
     fn isSeparatorRow(_: *Parser, line: []const u8) bool {
         var has_dashes = false;
+        var i: usize = 0;
 
-        for (line) |char| {
+        while (i < line.len) {
+            const char = line[i];
+
+            // Skip escaped characters
+            if (char == '\\' and i + 1 < line.len) {
+                i += 2;
+                continue;
+            }
+
             switch (char) {
                 '|', ':', '-', ' ', '\t' => {
                     if (char == '-') has_dashes = true;
                 },
                 else => return false,
             }
+            i += 1;
         }
 
         return has_dashes;
     }
-
     /// Parses alignment from separator row
     fn parseAlignments(_: *Parser, line: []const u8, alignments: *[32]TableAlignment) void {
         var col_idx: usize = 0;
@@ -1267,12 +1553,22 @@ pub const Parser = struct {
         while (i < line.len and col_idx < 32) {
             const cell_start = i;
 
-            // Find end of cell (next | or end of line)
-            while (i < line.len and line[i] != '|') {
+            // Find end of cell (next unescaped | or end of line)
+            while (i < line.len) {
+                // Check for escaped pipe - skip it
+                if (line[i] == '\\' and i + 1 < line.len and line[i + 1] == '|') {
+                    i += 2; // Skip both \ and |
+                    continue;
+                }
+                // Unescaped pipe = end of cell
+                if (line[i] == '|') break;
                 i += 1;
             }
 
-            const cell_content = std.mem.trim(u8, line[cell_start..i], " \t");
+            const raw_cell_content = std.mem.trim(u8, line[cell_start..i], " \t");
+
+            // Process escape sequences in cell content
+            const cell_content = try self.processEscapes(raw_cell_content);
 
             // Skip the pipe
             if (i < line.len and line[i] == '|') {
@@ -1288,6 +1584,7 @@ pub const Parser = struct {
                 .table_cell = .{
                     .is_header = is_potential_header,
                     .alignment = alignments[col_idx],
+                    .first_column = col_idx == 0,
                 },
             };
 
@@ -1312,7 +1609,7 @@ pub const Parser = struct {
 ///
 /// This function demonstrates how to "walk" or "traverse" the tree
 /// recursively, printing out its structure.
-fn traversePrint(node: ?*Node, writer: *std.io.Writer, indent: usize) !void {
+pub fn traversePrint(node: ?*Node, writer: *std.io.Writer, indent: usize) !void {
     var current = node;
     while (current) |n| {
         // 1. Print indentation
@@ -1323,23 +1620,35 @@ fn traversePrint(node: ?*Node, writer: *std.io.Writer, indent: usize) !void {
         // 2. Print the current node's info
         switch (n.tag) {
             .Root => try writer.print("[Root]\n", .{}),
-            .Heading => |_| {
+            .Heading => {
                 try writer.print("[Heading (L{d})]\n", .{n.data.heading.level});
             },
             .Paragraph => try writer.print("[Paragraph]\n", .{}),
-            .Text => |_| {
+            .Text => {
                 try writer.print("[Text: \"{s}\"]\n", .{n.data.text.content});
             },
-            .List => |_| {
+            .List => {
                 try writer.print("[List]\n", .{});
             },
-            .ListItem => |_| {
+            .ListItem => {
                 try writer.print("[ListItem]\n", .{});
+            },
+            .TextField => {
+                try writer.print("[TextField]\n", .{});
+            },
+            .Switch => {
+                try writer.print("[Switch]\n", .{});
+            },
+            .FormSection => {
+                try writer.print("[FormSection]\n", .{});
+            },
+            .Form => {
+                try writer.print("[Form]\n", .{});
             },
             // --- ADDED ---
             .Bold => try writer.print("[Bold]\n", .{}),
             .Italic => try writer.print("[Italic]\n", .{}),
-            .Code => |_| {
+            .Code => {
                 try writer.print("[Code: \"{s}\"]\n", .{n.data.code.content});
             },
             else => {},
@@ -1354,19 +1663,11 @@ fn traversePrint(node: ?*Node, writer: *std.io.Writer, indent: usize) !void {
     }
 }
 
-pub fn parseTraverse(markdown: []const u8, allocator: std.mem.Allocator) !void {
-    // 1. Initialize the parser
-    var parser = Parser.init(allocator, markdown);
-
-    // 2. Run the parser
-    _ = try parser.parse();
-
-    // 3. Traverse and print the tree
-    // try traverse(root_node);
-}
-
+pub const default_style_config = StyleConfig{};
+pub var global_style: ?StyleConfig = null;
 pub const StyleConfig = struct {
     code_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .hex("#212121"), .background = .white } },
+    switch_style: Vapor.Types.Style = .{ .visual = .{ .background = .transparentizeHex(.palette(.tint), 0.7) } },
     text_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .hex("#212121") } },
     heading_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .hex("#333333") } },
     text_field_style: Vapor.Types.Style = .{
@@ -1375,12 +1676,12 @@ pub const StyleConfig = struct {
         .font_family = "IBM Plex Mono,monospace",
         .interactive = .{
             .hover = .{
-                .border = .simple(.palette(.border_color_light)),
+                .border = .simple(.black),
             },
         },
         .visual = .{
             .border = .simple(.hex("#E1E1E1")),
-            .background = .palette(.background),
+            .background = .palette(.tint),
             .outline = .none,
         },
     },
@@ -1390,11 +1691,42 @@ pub const StyleConfig = struct {
         .size = .w(.percent(100)),
         .child_gap = 8,
     },
+    link_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .vapor_blue } },
     button_style: Vapor.Types.Style = .{
         .layout = .in_line,
         .size = .w(.percent(100)),
         .padding = .tb(6, 6),
-        .visual = .{ .border = .sharp(.solid, .hex("#FF0000")) },
+        .visual = .{
+            .border = .sharp(.solid, .hex("#FF0000")),
+            .text_color = .white,
+            .background = .black,
+        },
+    },
+    submit_style: Vapor.Types.Style = .{
+        .layout = .center,
+        .size = .w(.percent(100)),
+        .margin = .{ .top = 32 },
+        .visual = .{
+            .border = .round(.transparentizeHex(.palette(.background), 0.5), .all(4)),
+            .background = .transparentizeHex(.palette(.background), 0.9),
+            .cursor = .pointer,
+            .font_size = 16,
+            .text_color = .white,
+            .new_shadow = Vapor.Types.NewShadow.init()
+                .inset(0, -2, .transparentizeHex(.palette(.background), 0.5))
+                .drop(0, 1, 3, .transparentizeHex(.palette(.background), 0.1)),
+        },
+        .transition = .{ .duration = 100 },
+        .interactive = .{
+            .hover = .{
+                .new_shadow = Vapor.Types.NewShadow.init()
+                    .inset(0, -2, .transparentizeHex(.black, 0))
+                    .drop(0, 1, 3, .transparentizeHex(.black, 0)),
+            },
+        },
+        .padding = .tblr(4, 4, 8, 8),
+        .child_gap = 8,
+        .font_family = "IBM Plex Sans,monospace",
     },
     struct_style: Vapor.Types.Style = .{
         .size = .w(.percent(100)),
@@ -1410,15 +1742,29 @@ pub const StyleConfig = struct {
         },
     },
     table_header_style: Vapor.Types.Style = .{
+        .size = .w(.percent(100)),
+        .direction = .row,
+        .layout = .left_center,
         .visual = .{
-            .background = .hex("#F5F5F5"),
-            .font_weight = 600,
+            .background = .palette(.tint),
+            .border = .bottom(1, .black),
+            .text_color = .white,
+        },
+    },
+    table_row_style: Vapor.Types.Style = .{
+        .size = .w(.percent(100)),
+        .direction = .row,
+        .layout = .left_center,
+        .visual = .{
+            .background = .transparent,
+            .border = .bottom(1, .black),
+            .text_color = .black,
         },
     },
     table_cell_style: Vapor.Types.Style = .{
         .padding = .tblr(8, 8, 12, 12),
         .visual = .{
-            .border = .bottom(.hex("#E1E1E1")),
+            .border = .bottom(1, .hex("#E1E1E1")),
         },
     },
 };
@@ -1444,47 +1790,27 @@ pub fn getUnderlyingValue(comptime T: type, comptime OT: type, v: OT) T {
 }
 
 pub fn compile(self: *Self, value: anytype) !void {
+    if (self.allocator == null) return error.AllocatorNotSet;
     const root = try self.createNode(.Root);
     current_parent = null;
     try self.generate(root, "root", value);
     try traverse(root, self.style, void, null);
 }
 
-// pub const TaggedFunction = union(enum) {
-//     NoArgs: fn () void,
-//     Args: fn (T) void,
-//     NoArgsFunction: ?*const fn () void = null,
-//     ArgsFunction: ?*const fn (T) void = null,
-// };
-
-// pub const NoArgsFunction = struct {
-//     tag: []const u8,
-//     function: ?*const fn () void,
-// };
-
-// pub fn TaggedFunction(comptime T: type) type {
-//     return union(enum) {
-//         tag: []const u8,
-//         function: ?*const fn () void,
-//         args: T,
-//     };
-// }
-
 pub fn MarkDown(self: *Self, components: anytype) type {
     return struct {
         self: *Self = self,
         node: ?*Node = null,
         tag_f: @TypeOf(components) = components,
+        source: []const u8 = "",
+        parse_arena: ?std.heap.ArenaAllocator = null,
 
         // Validate component signatures at comptime
         comptime {
             for (components) |comp| {
-                // Check if .function exists
                 if (!@hasField(@TypeOf(comp), "function")) {
                     @compileError("Component missing .function field");
                 }
-
-                // If .args exists, validate function takes that type
                 if (@hasField(@TypeOf(comp), "args")) {
                     const ArgsType = @TypeOf(comp.args);
                     const FnInfo = @typeInfo(@TypeOf(comp.function));
@@ -1497,43 +1823,49 @@ pub fn MarkDown(self: *Self, components: anytype) type {
             }
         }
 
-        pub fn compile(markdown: *@This(), source: []const u8) !void {
+        /// Compiles markdown source. Safe to call repeatedly — each call
+        /// resets the internal arena, freeing all previous nodes and source.
+        pub fn compile(markdown: *@This(), source_input: []const u8) !void {
             const tft = @typeInfo(@TypeOf(components));
             if (tft != .@"struct") {
                 Vapor.printErr("Invalid Tagged Functions {any}\n", .{@typeInfo(@TypeOf(components))});
                 return error.InvalidTaggedFunctions;
             }
-            var parser = Parser.init(self.allocator, source);
+
+            // Initialize arena on first call only
+            if (markdown.parse_arena == null) {
+                if (self.allocator) |allocator| {
+                    markdown.parse_arena = std.heap.ArenaAllocator.init(allocator);
+                } else {
+                    std.log.err("Allocator not found. Please instantiate the Vaporize struct first", .{});
+                    return error.AllocatorNotFound;
+                }
+            } else {
+                // Subsequent calls: reset instead of re-creating
+                _ = markdown.parse_arena.?.reset(.retain_capacity);
+            }
+
+            const arena_alloc = markdown.parse_arena.?.allocator();
+            const new_source = try arena_alloc.dupe(u8, source_input);
+
+            var parser = Parser.init(arena_alloc, new_source);
             const node = try parser.parse();
-            markdown.* = .{
-                .self = self,
-                .node = node,
-                .tag_f = components,
-            };
+            markdown.node = node;
+            markdown.source = new_source;
         }
+
+        /// Frees all memory. Call when done with this markdown instance.
+        pub fn deinit(markdown: *@This()) void {
+            markdown.parse_arena.?.deinit();
+            markdown.node = null;
+            markdown.source = "";
+        }
+
         pub fn render(markdown: *@This()) !void {
             if (markdown.node == null) return error.NodeNotFoundMustCompileFirst;
             try markdown.self.traverse(markdown.node.?, .{}, &markdown.tag_f);
         }
     };
-}
-
-pub fn compileMarkdown(self: *Self, source: []const u8, tagged_functions: anytype) !*MarkDown(@TypeOf(tagged_functions)) {
-    const tft = @typeInfo(@TypeOf(tagged_functions));
-    if (tft != .pointer and tft.pointer.size != .one) {
-        Vapor.printErr("Invalid Tagged Functions {any}\n", .{@typeInfo(@TypeOf(tagged_functions))});
-        return error.InvalidTaggedFunctions;
-    }
-
-    var parser = Parser.init(self.allocator, source);
-    const node = try parser.parse();
-    const TaggedFunctionType = @TypeOf(tagged_functions);
-    const markdown = try self.allocator.create(MarkDown(TaggedFunctionType));
-    markdown.* = .{
-        .node = node,
-        .tag_f = tagged_functions,
-    };
-    return markdown;
 }
 
 pub fn attachChild(_: *Self, parent: *Node, child: *Node) void {
@@ -1549,105 +1881,6 @@ pub fn attachChild(_: *Self, parent: *Node, child: *Node) void {
 }
 
 var current_parent: ?*Node = null;
-// fn validation(form_value: anytype, evt: *Vapor.Event) void {
-//     Vapor.print("VALIDATION\n", .{});
-//     evt.preventDefault();
-//     const validations = @TypeOf(form_value).__validations;
-//
-//     // const form_fields = @typeInfo(@TypeOf(form_value)).@"struct".fields;
-//
-//     // Parse form data
-//     const parsed_form: @TypeOf(form_value) = evt.formData(&form_value) orelse return;
-//
-//     // These are the Validation fields
-//     const validation_fields = @typeInfo(Validation).@"struct".fields;
-//
-//     // Get form validations fields, these are fields that are specified in form __validations anonymous struct
-//     const form_validation_fields = @typeInfo(@TypeOf(validations)).@"struct".fields;
-//
-//     // Loop through the __validations fields these are the form fields, like username, password ect
-//     inline for (form_validation_fields) |field| {
-//         // This is the field name for the form, and validation, they must be matching
-//         const field_name = field.name;
-//         // Get the value from the form
-//         const field_value = @field(parsed_form, field_name);
-//
-//         // Get the validation value Validation, like .{ .min = 3, .max = 10, .err = "err msg" }
-//         const form_validation_value = field.defaultValue() orelse {
-//             Vapor.print("No validation value\n", .{});
-//         };
-//
-//         // loop through the validation fields
-//         // And check if the field value of parsed form matches the validation value
-//         inline for (validation_fields) |validation_field| {
-//             const validation_name = validation_field.name;
-//             const validation_type = validation_field.type;
-//             const validation_value = @field(form_validation_value, validation_field.name);
-//             if (validation_value == null) continue;
-//             if (!std.mem.eql(u8, "err", validation_name)) {
-//                 switch (@TypeOf(field_value)) {
-//                     usize, u32, u64, i32, i64, f32, f64 => {
-//                         if (std.mem.eql(u8, "max", validation_name)) {
-//                             if (field_value < validation_value.?) {
-//                                 Vapor.print("Max validation failed\n", .{});
-//                             }
-//                         }
-//                         if (std.mem.eql(u8, "min", validation_name)) {
-//                             if (field_value > validation_value.?) {
-//                                 Vapor.print("Max validation failed\n", .{});
-//                             }
-//                         }
-//                     },
-//                     []const u8 => {
-//                         switch (@typeInfo(Vapor.Kit.getUnderlyingType(validation_type))) {
-//                             .pointer => {
-//                                 if (std.mem.eql(u8, "includes", validation_name)) {
-//                                     if (std.mem.indexOf(u8, field_value, validation_value.?) == null) {
-//                                         Vapor.printErr("Includes validation failed\n", .{});
-//                                     }
-//                                 }
-//                             },
-//                             .int => {
-//                                 if (std.mem.eql(u8, "min", validation_name)) {
-//                                     if (field_value.len < validation_value.?) {
-//                                         Vapor.printErr("Validation failed for min\n", .{});
-//                                     }
-//                                 }
-//                                 if (std.mem.eql(u8, "max", validation_name)) {
-//                                     if (field_value.len > validation_value.?) {
-//                                         Vapor.printErr("Validation failed for max\n", .{});
-//                                     }
-//                                 }
-//                             },
-//                             .@"enum" => {
-//                                 switch (validation_value.?) {
-//                                     .email => {
-//                                         const email_value = field_value;
-//                                         if (std.mem.indexOf(u8, email_value, "@") == null) {
-//                                             Vapor.printErr("Password requires an '@' symbol\n", .{});
-//                                         }
-//                                         if (email_value.len < 5) {
-//                                             Vapor.printErr("Email requires a minimum of 5 characters\n", .{});
-//                                         }
-//                                     },
-//                                     .password => {
-//                                         if (field_value.len < 5) {
-//                                             Vapor.printErr("Password requires a minimum of 5 characters\n", .{});
-//                                         }
-//                                     },
-//                                     else => {},
-//                                 }
-//                             },
-//                             else => {},
-//                         }
-//                     },
-//                     else => {},
-//                 }
-//             }
-//         }
-//     }
-// }
-
 fn generate(self: *Self, parent: *Node, field_name: []const u8, value: anytype) !void {
     const VT = @TypeOf(value);
     current_parent = current_parent orelse parent;
@@ -1670,15 +1903,6 @@ fn generate(self: *Self, parent: *Node, field_name: []const u8, value: anytype) 
             current_parent = parent;
         },
         .pointer => |ptr| {
-            // switch (VT) {
-            //     []const u8 => {
-            //         Vapor.print("[]const u8 slice\n", .{});
-            //         const node = try self.createNode(.Text);
-            //         node.data = .{ .text = .{ .content = value } };
-            //         self.attachChild(current_parent.?, node);
-            //     },
-            //     else => {},
-            // }
             switch (ptr.size) {
                 .c => {},
                 .many => {},
@@ -1741,17 +1965,41 @@ const StackItem = struct {
     node: *Node,
     style: Style,
     // We need to remember the function that closes this specific node
-    closer: ?*const fn (void) void,
+    // closer: ?*const fn (void) void,
+    closer: ?Vapor.Builder(.pure),
+    is_section: bool = false, // Add this field
+
 };
 
-pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
+fn ErrorText(err: *ValidationError) void {
+    // if (err == null) return;
+    // const e: *ValidationError = @ptrCast(@alignCast(err));
+    Text(err.message)
+        .cursor(.help)
+        .inlineStyle(
+            \\min-width: 0;
+            \\max-width: 100%;    /* never exceed parent */
+            \\width: fit-content; /* only take what's needed */
+            \\overflow-wrap: break-word; /* wrap long words if needed */
+        , .{})
+        .font(12, null, .red)
+        .height(.px(16))
+        // .width(.percent(100))
+        .ellipsis(.dot)
+        .end();
+}
+
+pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
+    const allocator = self.allocator orelse return error.AllocatorNotFound;
     // 1. The 'Backtrack' Stack
     // This holds nodes that are currently "Open" in the UI.
-    var stack = std.array_list.Managed(StackItem).init(self.allocator);
+    var stack = std.array_list.Managed(StackItem).init(allocator);
     defer stack.deinit();
 
     var current_node = node;
     var current_style = style;
+    var skip = false;
+    var section_depth: u32 = 0; // Track nesting depth
 
     // Loop until we have no node to process and the stack is empty
     while (current_node != null) {
@@ -1761,7 +2009,9 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
         // We create a mutable copy for this specific node context
         var node_style = current_style;
 
-        var current_closer: ?*const fn (void) void = null;
+        var current_closer: ?Vapor.Builder(.pure) = null;
+        var is_section = false; // Track if this node is a section
+
         switch (n.tag) {
             .Root => {},
             .Heading => {
@@ -1784,13 +2034,13 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .size = .{ .width = .percent(100), .height = .percent(100) },
                     .padding = .tb(16, 16),
                     .layout = .center,
-                })({
+                }).children({
                     Graphic(.{ .src = src }).style(&.{
                         .layout = .center,
                         .size = .{ .width = .percent(70), .height = .auto },
                         .visual = .{ .fill = self.style_config.text_style.visual.?.text_color, .stroke = self.style_config.text_style.visual.?.text_color },
                         .aspect_ratio = .landscape,
-                    });
+                    }).end();
                 });
             },
             .Image => {
@@ -1803,7 +2053,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 Image(.{ .src = src }).style(&.{
                     .size = .{ .width = .percent(70), .height = .auto },
                     .aspect_ratio = .landscape,
-                });
+                }).end();
             },
             .Section => {
                 current_closer = Section().id(n.data.section.id).style(&.{
@@ -1813,14 +2063,14 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .layout = .{},
                 });
             },
-            .Snippet => |_| {
+            .Snippet => {
                 const snippet = n.data.snippet.ptr;
                 const content = n.data.snippet.content;
                 Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .fit },
                     .margin = .tb(4, 4),
                     .layout = .center,
-                })({
+                }).children({
                     snippet.code(content);
                 });
             },
@@ -1831,7 +2081,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .padding = .tb(6, 6),
                 });
             },
-            .Text => |_| {
+            .Text => {
                 if (node_style.level > 0) {
                     switch (node_style.level) {
                         1 => {
@@ -1839,30 +2089,30 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                                 .visual = .{ .font_weight = 700, .font_size = 42 },
                                 .font_family = "IBM Plex Sans,sans-serif",
                                 .margin = .tb(16, 0),
-                            });
+                            }).end();
                         },
                         2 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 400, .font_size = 28 },
                             .font_family = "IBM Plex Sans,sans-serif",
                             .margin = .tb(16, 0),
-                        }),
+                        }).end(),
                         3 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 600, .font_size = 24 },
                             .font_family = "IBM Plex Sans,sans-serif",
                             .margin = .tb(12, 0),
-                        }),
+                        }).end(),
                         4 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 400, .font_size = 20 },
                             .font_family = "IBM Plex Sans,sans-serif",
-                        }),
+                        }).end(),
                         5 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 300, .font_size = 18 },
                             .font_family = "IBM Plex Sans,sans-serif",
-                        }),
+                        }).end(),
                         6 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 200 },
                             .font_family = "IBM Plex Sans,sans-serif",
-                        }),
+                        }).end(),
                         else => {},
                     }
                 } else {
@@ -1870,13 +2120,14 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                         .layout = .in_line,
                         .visual = .{
                             .font_size = 16,
-                            .font_weight = if (node_style.is_bold) 900 else 400,
+                            .font_weight = if (node_style.is_bold) 600 else 400,
                             .font_style = if (node_style.is_italic) .italic else null,
+                            .text_color = self.style_config.text_style.visual.?.text_color,
                         },
-                    });
+                    }).end();
                 }
             },
-            .List => |_| {
+            .List => {
                 current_closer = List().style(&.{
                     .layout = .left_center,
                     .direction = .column,
@@ -1885,24 +2136,10 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .list_style = n.data.list.list_type,
                 });
             },
-            .CodeBlock => |_| {
-                var editor = n.data.code_block.editor;
-                Box().style(&.{
-                    .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .margin = .tb(16, 32),
-                    .layout = .center,
-                    .visual = .{
-                        .background = self.style_config.code_style.visual.?.background,
-                        .border = self.style_config.code_style.visual.?.border,
-                    },
-                })({
-                    editor.renderAST(editor.root) catch unreachable;
-                });
-            },
-            .ListItem => |_| {
+            .ListItem => {
                 current_closer = ListItem().style(&.{});
             },
-            .RunBlock => |_| {
+            .RunBlock => {
                 const src = n.data.run_block.src;
                 const ptr = @typeInfo(@TypeOf(value)).pointer.child;
                 const fncs = @typeInfo(ptr).@"struct".fields;
@@ -1918,7 +2155,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     }
                 }
             },
-            .Link => |_| {
+            .Link => {
                 const href = n.data.link.href;
                 const title = n.data.link.title;
                 RedirectLink(.{ .url = href, .aria_label = title }).style(&.{
@@ -1926,64 +2163,754 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .visual = .{
                         .cursor = .pointer,
                     },
-                })({
+                }).children({
                     Text(title).style(&.{
                         .layout = .in_line,
                         .visual = .{
                             .font_size = 16,
-                            .font_weight = if (style.is_bold) 900 else 400,
+                            .font_weight = if (style.is_bold) 600 else 400,
                             .font_style = if (style.is_italic) .italic else null,
                         },
-                    });
+                    }).end();
                 });
             },
-            .Code => |_| {
+            .Code => {
                 Code(n.data.code.content).style(&.{
                     .layout = .in_line,
                     .visual = .{
                         .font_size = 15,
-                        .font_weight = if (style.is_bold) 900 else 400,
+                        .font_weight = if (style.is_bold) 600 else 400,
                         .text_color = self.style_config.code_style.visual.?.text_color,
                     },
                     .font_family = "JetBrains Mono,Fira Code,Consolas,monospace",
+                }).end();
+            },
+            .FormSection => {
+                const targeted = value.conditionals.get(n.data.formsection.title) orelse true;
+                if (targeted) {
+                    const title = Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.formsection.title, .frame), "_", " ", .frame);
+
+                    // Style based on depth
+                    const font_size: u8 = switch (section_depth) {
+                        0, 1 => 18, // Top level: large
+                        2 => 14, // Subsection: smaller
+                        else => 12, // Deeper: even smaller
+                    };
+
+                    const font_weight: u16 = switch (section_depth) {
+                        0, 1 => 700, // Top level: bold
+                        2 => 600, // Subsection: semi-bold
+                        else => 500, // Deeper: medium
+                    };
+
+                    const text_color: Vapor.Types.Color = switch (section_depth) {
+                        0 => .black, // Top level: normal
+                        else => .transparentizeHex(.black, 0.6), // Subsection: muted/gray
+                    };
+
+                    is_section = true;
+                    section_depth += 1;
+                    current_closer = Section().style(&.{
+                        .layout = .flex,
+                        .flex_wrap = .wrap,
+                        .direction = .row,
+                        .size = .hw(.fit, .percent(100)),
+                        .child_gap = 16,
+                        .margin = .tb(0, 0),
+                        .padding = if (section_depth > 1) .left(16) else .all(0),
+                        .visual = .{
+                            .border = if (section_depth > 1) .sharp(.left(1), .black) else .none,
+                        },
+                    });
+
+                    Text(title).style(&.{
+                        .layout = .in_line,
+                        .size = .w(.percent(100)),
+                        .visual = .{
+                            .font_size = font_size,
+                            .font_weight = font_weight,
+                            .font_style = if (node_style.is_italic) .italic else null,
+                            .text_color = text_color,
+                        },
+                        .margin = .tb(if (section_depth > 1) 12 else 24, 0),
+                    }).end();
+                } else {
+                    skip = true;
+                }
+            },
+            .Switch => {
+                current_closer = Box().style(&.{
+                    .layout = .x_between_center,
+                    .direction = .row,
+                    .size = .hw(.fit, .percent(100)),
+                });
+                const title = Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.toggle.title, .frame), "_", " ", .frame);
+                Text(title).style(&.{
+                    .layout = .in_line,
+                    .visual = .{
+                        .font_size = 16,
+                        .font_weight = if (style.is_bold) 600 else 400,
+                        .font_style = if (style.is_italic) .italic else null,
+                    },
+                    .margin = .tb(0, 0),
+                }).end();
+                const t = getUnderlyingType(@TypeOf(value));
+                if (@typeInfo(t) == .pointer) {
+                    const PtrInfo = @typeInfo(t).pointer;
+
+                    // 2. Ensure the child type has the field "form_data"
+                    if (@hasField(PtrInfo.child, "form_data")) {
+                        // Since 'value' is a pointer, we dereference it to access the field
+                        const form_value = value.*.form_data;
+                        const FormType = @TypeOf(form_value.*);
+                        const condition: *Condition(FormType) = @ptrCast(@alignCast(n.data.toggle.condition));
+                        const visual = if (self.style_config.switch_style.visual) |v| v else default_style_config.switch_style.visual.?;
+                        Switch.render(n.data.toggle.title, FormType, form_value, condition, &value.conditionals, visual.background);
+                    }
+                }
+            },
+            .TextArea => {
+                current_closer = Box()
+                    .style(&.{
+                    .layout = .top_left,
+                    .direction = .column,
+                    .size = .hw(.fit, .percent(100)),
+                    .child_gap = 4,
+                });
+                const title = Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.textarea.title, .frame), "_", " ", .frame);
+                var label: Vapor.Builder(.pure) = Label(title);
+
+                var text_area: Vapor.TextAreaBuilder(.pure) = TextArea.render(.{
+                    .label = title,
+                    .field_name = n.data.textarea.title,
+                });
+
+                const uuid = text_area.getUUID();
+                const id = Vapor.fmtln("{s}_{s}", .{ title, uuid });
+
+                label.fieldName(id).style(&self.style_config.text_style).end();
+
+                text_area.id(id).height(.px(72)).end();
+
+                Box()
+                    .inlineStyle(
+                        \\min-width: 0;
+                        \\max-width: 100%;
+                    , .{})
+                    .style(&.{
+                        .size = .h(.px(16)),
+                    }).children({
+                    if (n.data.textarea.err) |err| {
+                        for (err.errors.items) |*e| {
+                            if (std.mem.eql(u8, e.field, n.data.textarea.title)) {
+                                Tooltip.create(.{
+                                    .background = .palette(.danger),
+                                    .stroke_color = .palette(.danger),
+                                    .content = e.message,
+                                    .title = title,
+                                })
+                                    .Trigger(ErrorText, .{e})
+                                    .end();
+                            } else {
+                                Vapor.Null();
+                            }
+                        }
+                    }
                 });
             },
             .TextField => {
+                const t = getUnderlyingType(@TypeOf(value));
+                const has_component = if (@typeInfo(t) == .pointer) blk: {
+                    const PtrInfo = @typeInfo(t).pointer;
+
+                    // 2. Ensure the child type has the field "form_data"
+                    if (@hasField(PtrInfo.child, "form_data")) {
+                        // Since 'value' is a pointer, we dereference it to access the field
+                        const form_value = value.*.form_data;
+                        const FormType = @TypeOf(form_value.*);
+
+                        // 3. Check for the declaration on the Type itself
+                        if (@hasDecl(FormType, "__components")) {
+                            // Access the decl directly from the type
+                            const components = FormType.__components;
+                            const components_info = @typeInfo(@TypeOf(components));
+
+                            if (components_info == .@"struct") {
+                                inline for (components_info.@"struct".fields) |field| {
+                                    // 4. runtime string comparison is fine, but field.name is comptime
+                                    if (std.mem.eql(u8, field.name, n.data.textfield.title)) {
+
+                                        // 5. This is the likely 'TODO' panic:
+                                        // Instead of defaultValue(), access the field from the static 'components' instance
+                                        const field_component = @field(components, field.name);
+
+                                        var err: ?ValidationError = null;
+                                        if (n.data.textfield.err) |text_err| {
+                                            for (text_err.errors.items) |e| {
+                                                if (std.mem.eql(u8, e.field, n.data.textfield.title)) {
+                                                    err = e;
+                                                }
+                                            }
+                                        }
+                                        @call(.auto, field_component, .{ value.*.form_data, err });
+                                        break :blk true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (!has_component) {
+                    const width: usize = if (section_depth > 0) 150 else 48;
+                    current_closer = Box()
+                        .inlineStyle("flex: 1 1 {d}px; min-width: 0; align-self: stretch;max-width: 100%;", .{width})
+                        .style(&.{
+                        .layout = .top_left,
+                        .direction = .column,
+                        .size = .hw(.auto, .auto),
+                        .child_gap = 4,
+                    });
+                    // Label(Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.textfield.title, .frame), "_", " ", .frame)).style(&self.style_config.text_style);
+                    const title = Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.textfield.title, .frame), "_", " ", .frame);
+
+                    // const visual = if (self.style_config.text_field_style.visual) |v| v else default_style_config.text_field_style.visual.?;
+
+                    Field.Field(.{
+                        .type = n.data.textfield.type,
+                        .label = title,
+                        .config = n.data.textfield.config,
+                        .field_name = n.data.textfield.title,
+                        .default_value = n.data.textfield.default_value,
+                        .placeholder = n.data.textfield.placeholder,
+                        // .backgroud = visual.background,
+                    }).render();
+                    Box()
+                        .inlineStyle(
+                            \\min-width: 0;
+                            \\max-width: 100%;
+                        , .{})
+                        .style(&.{
+                            // .layout = .left_center,
+                            .size = .h(.px(16)),
+                        }).children({
+                        // TextField(n.data.textfield.type).fieldName(n.data.textfield.title).style(&self.style_config.text_field_style);
+                        if (n.data.textfield.err) |err| {
+                            for (err.errors.items) |*e| {
+                                if (std.mem.eql(u8, e.field, n.data.textfield.title)) {
+                                    // Tooltip.renderCtx(.{
+                                    //     .name = title,
+                                    //     .title = title,
+                                    //     .content = e.message,
+                                    //     .trigger_ctx = ErrorText,
+                                    //     .ctx = @ptrCast(@alignCast(e)),
+                                    // });
+                                    Tooltip.create(.{
+                                        .background = .palette(.danger),
+                                        .stroke_color = .palette(.danger),
+                                        .content = e.message,
+                                        .title = title,
+                                    })
+                                        .Trigger(ErrorText, .{e})
+                                        .end();
+                                } else {
+                                    Vapor.Null();
+                                }
+                            }
+                        }
+                    });
+                }
+            },
+            .Dropdown => {
+                current_closer = Vapor.FieldSet().style(&.{
+                    .layout = .left_center,
+                    .direction = .column,
+                    .size = .hw(.fit, .percent(100)),
+                    .child_gap = 4,
+                });
+
+                // Button(.{ .on_press = value.*.form_data.toggle })
+                //     .border(.simple(.black)).children({
+                //     Text("Increment").fontSize(18).end();
+                // });
+
+                const t = getUnderlyingType(@TypeOf(value));
+                const has_component = if (@typeInfo(t) == .pointer) blk: {
+                    const PtrInfo = @typeInfo(t).pointer;
+
+                    // 2. Ensure the child type has the field "form_data"
+                    if (@hasField(PtrInfo.child, "form_data")) {
+                        // Since 'value' is a pointer, we dereference it to access the field
+                        const form_value = value.*.form_data;
+                        const FormType = @TypeOf(form_value.*);
+
+                        // 3. Check for the declaration on the Type itself
+                        if (@hasDecl(FormType, "__components")) {
+                            // Access the decl directly from the type
+                            const components = FormType.__components;
+                            const components_info = @typeInfo(@TypeOf(components));
+
+                            if (components_info == .@"struct") {
+                                inline for (components_info.@"struct".fields) |field| {
+                                    // 4. runtime string comparison is fine, but field.name is comptime
+                                    if (std.mem.eql(u8, field.name, n.data.dropdown.title)) {
+
+                                        // 5. This is the likely 'TODO' panic:
+                                        // Instead of defaultValue(), access the field from the static 'components' instance
+                                        const field_component = @field(components, field.name);
+
+                                        var err: ?ValidationError = null;
+                                        if (n.data.textfield.err) |text_err| {
+                                            for (text_err.errors.items) |e| {
+                                                if (std.mem.eql(u8, e.field, n.data.textfield.title)) {
+                                                    err = e;
+                                                }
+                                            }
+                                        }
+                                        @call(.auto, field_component, .{ value.*.form_data, err });
+                                        break :blk true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (!has_component) {
+                    const PtrInfo = @typeInfo(t).pointer;
+                    // 2. Ensure the child type has the field "form_data"
+                    if (@hasField(PtrInfo.child, "form_data")) {
+                        const tags = n.data.dropdown.tags;
+                        const title = Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.dropdown.title, .frame), "_", " ", .frame);
+                        for (tags) |tag| {
+                            Field.Field(.{
+                                .type = .radio,
+                                .label = tag,
+                                // .config = n.data.textfield.config,
+                                .field_name = n.data.dropdown.title,
+                                .default_value = .{ .string = tag },
+                                // .placeholder = n.data.textfield.placeholder,
+                                // .backgroud = visual.background,
+                            }).render();
+                        }
+                        Box()
+                            .inlineStyle("min-width: 0; max-width: 100%;", .{})
+                            .style(&.{ .size = .h(.px(16)) }).children({
+                            if (n.data.dropdown.err) |err| {
+                                for (err.errors.items) |*e| {
+                                    if (std.mem.eql(u8, e.field, n.data.dropdown.title)) {
+                                        Tooltip.create(.{
+                                            .background = .palette(.danger),
+                                            .stroke_color = .palette(.danger),
+                                            .content = e.message,
+                                            .title = title,
+                                        })
+                                            .Trigger(ErrorText, .{e})
+                                            .end();
+                                    } else {
+                                        Vapor.Null();
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            },
+            else => {},
+        }
+
+        // --- STEP 2: OPEN UI ELEMENT ---
+        // This calls your ui_ctx.open(...) internally
+        // We pass 'node_style' because that is the style FOR THIS node and its children
+
+        // --- STEP 3: DETERMINE NEXT MOVE ---
+
+        if (!skip and n.child != null) {
+            const child = n.child.?;
+            // A: GO DEEPER (Container)
+
+            // 1. Push the CURRENT node and its CLOSER to the stack
+            try stack.append(.{
+                .node = n,
+                .style = current_style, // Save parent style
+                .closer = current_closer, // Save the closer function!
+                .is_section = is_section, // Save whether this was a section
+            });
+
+            // 2. Move to child
+            current_node = child;
+            current_style = node_style; // Apply new style to child
+        } else {
+            // B: LEAF NODE (No children)
+
+            // 1. If this node produced a closer, call it immediately
+            //    (This closes empty boxes, or leaf items like Images)
+            if (current_closer) |closer| {
+                closer.children({});
+            }
+
+            // Decrement depth if this was a section leaf (no children)
+            if (is_section) {
+                section_depth -= 1;
+            }
+
+            if (n.next) |sibling| {
+                current_node = sibling;
+                // Style remains 'current_style' (parent's style)
+            } else {
+                // C: BACKTRACK
+                current_node = null; // Stop unless we find a path up
+
+                while (stack.items.len > 0) {
+                    // 1. Pop the Parent
+                    const parent_item = stack.pop() orelse break;
+
+                    // 2. CRITICAL: CLOSE THE PARENT CONTAINER
+                    //    We are now exiting the parent, so we call the builder
+                    //    we saved when we entered it.
+                    if (parent_item.closer) |closer| {
+                        closer.children({});
+                    }
+
+                    // Decrement depth when closing a section
+                    if (parent_item.is_section) {
+                        section_depth -= 1;
+                    }
+
+                    // 3. Check if Parent has a Sibling
+                    if (parent_item.node.next) |parent_sibling| {
+                        current_node = parent_sibling;
+                        current_style = parent_item.style; // Restore ancestor style
+                        break; // Resume outer loop
+                    }
+
+                    // If parent has no sibling, loop continues to pop grandparent...
+                }
+            }
+        }
+    }
+}
+
+fn CodeBox(code: *SyntaxHighlighter, title: []const u8) void {
+    Stack().width(.percent(100))
+        .height(.percent(100))
+        .background(.transparentize(.black, 0.2))
+        .radius(.all(18))
+        .padding(.xy(8, 8))
+        .children({
+        Stack().width(.percent(100))
+            .height(.percent(100))
+            .background(.hex("#111110"))
+            .radius(.all(10))
+            .padding(.xy(8, 16))
+            .children({
+            Box()
+                .width(.percent(100))
+                .height(.percent(6))
+                .padding(.horizontal(24))
+                .children({
+                Box()
+                    .padding(.all(8))
+                    .width(.fit)
+                    .layout(.center)
+                    .height(.percent(100))
+                    .border(.bottom(1, .white))
+                    .children({
+                    Text(title)
+                        .fontStyle(.italic)
+                        .fontFamily("Geist Mono, monospace")
+                        .font(14, 300, .white).end();
+                });
+            });
+            Center().width(.percent(100))
+                .height(.percent(94))
+                .scroll(.scroll_y())
+                .border(.round(.hex("#383735"), .all(6)))
+                .background(.hex("#282828"))
+                .children({
+                code.render() catch unreachable;
+            });
+        });
+    });
+}
+
+pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
+    const allocator = self.allocator orelse return error.AllocatorNotFound;
+    // 1. The 'Backtrack' Stack
+    // This holds nodes that are currently "Open" in the UI.
+    var stack = std.array_list.Managed(StackItem).init(allocator);
+    defer stack.deinit();
+
+    var current_node = node;
+    var current_style = style;
+    var column_count: usize = 0;
+
+    // Loop until we have no node to process and the stack is empty
+    while (current_node != null) {
+        const n = current_node.?;
+
+        // --- STEP 1: CALCULATE STYLE FOR THIS NODE ---
+        // We create a mutable copy for this specific node context
+        var node_style = current_style;
+        var current_closer: ?Vapor.Builder(.pure) = null;
+
+        switch (n.tag) {
+            .Root => {},
+            .Heading => {
+                current_closer = Box().style(&.{
+                    .layout = .in_line,
+                    .size = .w(.percent(100)),
+                    .padding = .tb(12, 12),
+                });
+                node_style.level = n.data.heading.level;
+            },
+            .Bold => {
+                node_style.is_bold = true;
+            },
+            .BlockQuote => {
+                current_closer = Box()
+                    .style(&Vapor.Types.Style{
+                    .layout = .in_line,
+                    .size = .w(.percent(100)),
+                    .padding = .left(12),
+                    .visual = .{ .border = .solid(.left(3), .transparentize(.black, 0.2), .all(0)) },
+                });
+            },
+            .HorizontalRule => {
+                current_closer = Box()
+                    .style(&Vapor.Types.Style{
+                    .size = .hw(.px(1), .percent(100)),
+                    .margin = .vertical(12),
+                    .visual = .bg(.transparentize(.black, 0.2)),
+                });
+            },
+            .Italic => {
+                node_style.is_italic = true;
+            },
+            .Svg => {
+                const src = n.data.image.src;
+                Box().style(&.{
+                    .size = .{ .width = .percent(100), .height = .percent(100) },
+                    .padding = .tb(16, 16),
+                    .layout = .center,
+                }).children({
+                    Graphic(.{ .src = src }).style(&.{
+                        .layout = .center,
+                        .size = .{ .width = .percent(70), .height = .auto },
+                        .visual = .{ .fill = self.style_config.text_style.visual.?.text_color, .stroke = self.style_config.text_style.visual.?.text_color },
+                        .aspect_ratio = .landscape,
+                    }).end();
+                });
+            },
+            .Image => {
+                const src = n.data.image.src;
+                current_closer = Box().style(&.{
+                    .size = .{ .width = .percent(100), .height = .percent(100) },
+                    .padding = .tb(32, 32),
+                    .layout = .center,
+                });
+                Image(.{ .src = src }).style(&.{
+                    .size = .{ .width = .percent(70), .height = .auto },
+                    .aspect_ratio = .landscape,
+                }).end();
+            },
+            .Section => {
+                current_closer = Section().id(n.data.section.id).style(&.{
+                    .child_gap = 4,
+                    .direction = .column,
+                    .size = .hw(.percent(100), .grow),
+                    .margin = .tb(0, 48),
+                    .layout = .{},
+                });
+            },
+            .Snippet => {
+                const snippet = n.data.snippet.ptr;
+                const content = n.data.snippet.content;
+                Box().style(&.{
+                    .size = .{ .width = .percent(100), .height = .fit },
+                    .margin = .tb(4, 4),
+                    .layout = .center,
+                }).children({
+                    snippet.code(content);
+                });
+            },
+            .Paragraph => {
+                current_closer = Box().style(&.{
+                    .layout = .in_line,
+                    .size = .w(.percent(100)),
+                    // .padding = .tb(6, 6),
+                });
+            },
+            .Text => {
+                if (node_style.level > 0) {
+                    switch (node_style.level) {
+                        1 => {
+                            Heading(node_style.level, n.data.text.content).style(&.{
+                                .visual = .{
+                                    .font_weight = 700,
+                                    .font_size = 42,
+                                    .text_color = self.style_config.text_style.visual.?.text_color,
+                                },
+                                .font_family = "IBM Plex Sans,sans-serif",
+                                // .margin = .tb(16, 0),
+                            }).end();
+                        },
+                        2 => Heading(node_style.level, n.data.text.content).style(&.{
+                            .visual = .{
+                                .font_weight = 400,
+                                .font_size = 28,
+                                .text_color = self.style_config.text_style.visual.?.text_color,
+                            },
+                            .font_family = "IBM Plex Sans,sans-serif",
+                            // .margin = .tb(16, 0),
+                        }).end(),
+                        3 => Heading(node_style.level, n.data.text.content).style(&.{
+                            .visual = .{
+                                .font_weight = 600,
+                                .font_size = 24,
+                                .text_color = self.style_config.text_style.visual.?.text_color,
+                            },
+                            .font_family = "IBM Plex Sans,sans-serif",
+                            // .margin = .tb(12, 0),
+                        }).end(),
+                        4 => Heading(node_style.level, n.data.text.content).style(&.{
+                            .visual = .{
+                                .font_weight = 400,
+                                .font_size = 20,
+                                .text_color = self.style_config.text_style.visual.?.text_color,
+                            },
+                            .font_family = "IBM Plex Sans,sans-serif",
+                        }).end(),
+                        5 => Heading(node_style.level, n.data.text.content).style(&.{
+                            .visual = .{
+                                .font_weight = 300,
+                                .font_size = 18,
+                                .text_color = self.style_config.text_style.visual.?.text_color,
+                            },
+                            .font_family = "IBM Plex Sans,sans-serif",
+                        }).end(),
+                        6 => Heading(node_style.level, n.data.text.content).style(&.{
+                            .visual = .{
+                                .font_weight = 200,
+                                .text_color = self.style_config.text_style.visual.?.text_color,
+                            },
+                            .font_family = "IBM Plex Sans,sans-serif",
+                        }).end(),
+                        else => {},
+                    }
+                } else {
+                    Text(n.data.text.content)
+                        .unmanaged()
+                        .style(&.{
+                            .layout = .in_line,
+                            .visual = .{
+                                .font_size = 16,
+                                .font_weight = if (node_style.is_bold) 600 else 400,
+                                .font_style = if (node_style.is_italic) .italic else null,
+                                // .text_color = self.style_config.text_style.visual.?.text_color,
+                            },
+                        }).end();
+                }
+            },
+            .List => {
+                current_closer = List().style(&.{
+                    .layout = .left_center,
+                    .direction = .column,
+                    .size = .w(.percent(100)),
+                    .child_gap = 8,
+                    .list_style = n.data.list.list_type,
+                    .padding = .left(32),
+                    .visual = .{
+                        .text_color = self.style_config.text_style.visual.?.text_color,
+                    },
+                });
+            },
+            .CodeBlock => {
+                var editor = n.data.code_block.editor;
+                editor.show_toolbar = true;
+                Box().style(&.{
+                    .size = .{ .width = .percent(100), .height = .percent(100) },
+                    .margin = .tb(16, 32),
+                    .layout = .center,
+                    .visual = .{
+                        // .background = self.style_config.code_style.visual.?.background,
+                        // .border = self.style_config.code_style.visual.?.border,
+                    },
+                }).children({
+                    CodeBox(editor, "sample.zig");
+                    // editor.render() catch unreachable;
+                });
+            },
+            .ListItem => {
+                current_closer = ListItem().style(&.{});
+            },
+            .RunBlock => {
+                const src = n.data.run_block.src;
+                const ptr = @typeInfo(@TypeOf(value)).pointer.child;
+                const fncs = @typeInfo(ptr).@"struct".fields;
+                inline for (fncs) |func| {
+                    if (func.type == ?*ValidationResult) break;
+                    const anon_func = func.defaultValue() orelse continue;
+                    if (@hasField(func.type, "args")) {
+                        if (std.mem.eql(u8, src, anon_func.tag)) {
+                            @call(.auto, anon_func.function, .{anon_func.args});
+                        }
+                    } else if (std.mem.eql(u8, src, anon_func.tag)) {
+                        @call(.auto, anon_func.function, .{});
+                    }
+                }
+            },
+            .Link => {
+                const href = n.data.link.href;
+                const title = n.data.link.title;
+                RedirectLink(.{ .url = href, .aria_label = title }).style(&.{
+                    .layout = .in_line,
+                    .visual = .{
+                        .cursor = .pointer,
+                    },
+                }).children({
+                    Text(title).style(&.{
+                        .layout = .in_line,
+                        .visual = .{
+                            .font_size = 16,
+                            .font_weight = if (style.is_bold) 600 else 400,
+                            .font_style = .italic,
+                            .text_color = self.style_config.link_style.visual.?.text_color,
+                        },
+                    }).end();
+                });
+            },
+            .Code => {
+                Code(n.data.code.content).style(&.{
+                    .layout = .in_line,
+                    .visual = .{
+                        .font_size = 15,
+                        .font_weight = if (style.is_bold) 600 else 400,
+                        .text_color = self.style_config.code_style.visual.?.text_color,
+                    },
+                    .font_family = "JetBrains Mono,Fira Code,Consolas,monospace",
+                }).end();
+            },
+            .Box => {
                 current_closer = Box().style(&.{
                     .layout = .left_center,
                     .direction = .column,
                     .size = .hw(.fit, .percent(100)),
-                    .child_gap = 2,
+                    .child_gap = 8,
                 });
-                Label(n.data.textfield.title).style(&self.style_config.text_style);
-                TextField(n.data.textfield.type).fieldName(n.data.textfield.title).style(&self.style_config.text_field_style);
-                if (n.data.textfield.err) |err| {
-                    if (err.errors.items.len > n.data.textfield.err_index) {
-                        Text(err.errors.items[n.data.textfield.err_index].message)
-                            .font(12, null, .red)
-                            .height(.px(16))
-                            .width(.percent(100))
-                            .ellipsis(.dot)
-                            .end();
-                    } else {
-                        Text("error")
-                            .font(12, null, .transparent)
-                            .height(.px(16))
-                            .width(.percent(100))
-                            .ellipsis(.dot)
-                            .end();
-                    }
-                }
             },
             // Add these cases to the switch in traverse:
             .Table => {
+                column_count = n.data.table.column_count;
                 // Import or define Table component if not already available
                 current_closer = Box().style(&.{
                     .size = .w(.percent(100)),
                     .direction = .column,
                     .margin = .tb(16, 16),
                     .visual = .{
-                        .border = .sharp(.tblr(1, 0, 1, 1), .palette(.border_color)),
+                        .border = .sharp(.tblr(1, 0, 1, 1), .black),
                         .border_radius = .all(4),
                     },
                     .scroll = .scroll_x(),
@@ -1992,15 +2919,13 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
 
             .TableRow => {
                 const is_header = n.data.table_row.is_header;
-                current_closer = Box().style(&.{
-                    .size = .w(.percent(100)),
-                    .direction = .row,
-                    .layout = .left_center,
-                    .visual = .{
-                        .background = if (is_header) .palette(.tint) else .transparent,
-                        .border = .bottom(.palette(.border_color)),
-                    },
-                });
+                const table_header_style = self.style_config.table_header_style;
+                const table_row_style = self.style_config.table_row_style;
+                if (is_header) {
+                    current_closer = Box().style(&table_header_style);
+                } else {
+                    current_closer = Box().style(&table_row_style);
+                }
             },
 
             .TableCell => {
@@ -2012,13 +2937,56 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .default => .left_center,
                 };
 
+                const first_column_width: Vapor.Types.Sizing = if (column_count > 3 and cell_data.first_column) .percent(20) else .grow;
                 current_closer = Box().style(&.{
-                    .size = .hw(.fit, .grow),
+                    .size = .hw(.fit, first_column_width),
                     .padding = .tblr(8, 8, 12, 12),
                     .layout = alignment,
                     .visual = .{
                         .font_weight = if (cell_data.is_header) 600 else 400,
-                        .text_color = if (cell_data.is_header) .white else .palette(.text_color),
+                        .text_color = if (cell_data.is_header) self.style_config.table_header_style.visual.?.text_color else self.style_config.table_row_style.visual.?.text_color,
+                    },
+                });
+            },
+
+            .RightAligned => {
+                current_closer = Box().style(&.{
+                    .layout = .right_center,
+                    .size = .w(.percent(100)),
+                    .padding = .tb(6, 6),
+                });
+            },
+            .StyledContainer => {
+                const class = n.data.styled_container.style_class;
+
+                // Map class names to colors
+                const bg: Vapor.Types.Color = if (std.mem.eql(u8, class, "user"))
+                    .palette(.highlight_color)
+                else if (std.mem.eql(u8, class, "assistant"))
+                    .transparent
+                else if (std.mem.eql(u8, class, "success"))
+                    .transparentizeHex(.green, 0.9)
+                else if (std.mem.eql(u8, class, "warning"))
+                    .transparentizeHex(.yellow, 0.9)
+                else
+                    .transparentizeHex(.blue, 0.9);
+
+                const text_color: Vapor.Types.Color = if (std.mem.eql(u8, class, "user"))
+                    .white
+                else
+                    self.style_config.text_style.visual.?.text_color.?;
+
+                current_closer = Box().style(&.{
+                    .size = .w(.percent(100)),
+                    .direction = .column,
+                    .padding = .all(16),
+                    .margin = .tb(8, 8),
+                    .child_gap = 8,
+                    .visual = .{
+                        .background = bg,
+                        .border_radius = .all(12),
+                        .border = .sharp(.all(1), .transparentize(.black, 0.1)),
+                        .text_color = text_color,
                     },
                 });
             },
@@ -2026,13 +2994,8 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
             else => {},
         }
 
-        // --- STEP 2: OPEN UI ELEMENT ---
-        // This calls your ui_ctx.open(...) internally
-        // We pass 'node_style' because that is the style FOR THIS node and its children
-
-        // --- STEP 3: DETERMINE NEXT MOVE ---
-
-        if (n.child) |child| {
+        if (n.child != null) {
+            const child = n.child.?;
             // A: GO DEEPER (Container)
 
             // 1. Push the CURRENT node and its CLOSER to the stack
@@ -2051,7 +3014,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
             // 1. If this node produced a closer, call it immediately
             //    (This closes empty boxes, or leaf items like Images)
             if (current_closer) |closer| {
-                closer({});
+                closer.children({});
             }
 
             if (n.next) |sibling| {
@@ -2069,7 +3032,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     //    We are now exiting the parent, so we call the builder
                     //    we saved when we entered it.
                     if (parent_item.closer) |closer| {
-                        closer({});
+                        closer.children({});
                     }
 
                     // 3. Check if Parent has a Sibling
@@ -2085,225 +3048,6 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
         }
     }
 }
-
-// pub fn traverse(self: *Self, node: ?*Node, style: *const Style, value: anytype) !void {
-//     var current = node;
-//     var is_bold = style.is_bold;
-//     var is_italic = style.is_italic;
-//     var level = style.level;
-//     while (current) |n| {
-//         switch (n.tag) {
-//             .Root => {
-//                 current = n.child;
-//                 continue;
-//             },
-//             .Svg => |_| {
-//                 const src = n.data.image.src;
-//                 Box().style(&.{
-//                     .size = .{ .width = .percent(100), .height = .percent(100) },
-//                     .padding = .tb(32, 32),
-//                     .layout = .center,
-//                 })({
-//                     Graphic(.{ .src = src }).style(&.{
-//                         .size = .{ .width = .percent(70), .height = .auto },
-//                         .visual = .{ .fill = self.style_config.text_style.visual.?.text_color, .stroke = self.style_config.text_style.visual.?.text_color },
-//                         .aspect_ratio = .landscape,
-//                     });
-//                 });
-//             },
-//             .Image => |_| {
-//                 const src = n.data.image.src;
-//                 Box().style(&.{
-//                     .size = .{ .width = .percent(100), .height = .percent(100) },
-//                     .padding = .tb(32, 32),
-//                     .layout = .center,
-//                 })({
-//                     Image(.{ .src = src }).style(&.{
-//                         .size = .{ .width = .percent(70), .height = .auto },
-//                         .aspect_ratio = .landscape,
-//                     });
-//                 });
-//             },
-//             .Snippet => |_| {
-//                 const snippet = n.data.snippet.ptr;
-//                 const content = n.data.snippet.content;
-//                 Box().style(&.{
-//                     .size = .{ .width = .percent(100), .height = .fit },
-//                     .margin = .tb(4, 4),
-//                     .layout = .center,
-//                 })({
-//                     snippet.code(content);
-//                 });
-//             },
-//             .Heading => |_| {
-//                 Box().style(&.{
-//                     .layout = .in_line,
-//                     .size = .w(.percent(100)),
-//                     .padding = .tb(12, 12),
-//                 })({
-//                     current = n.child;
-//                     is_bold = style.is_bold;
-//                     is_italic = style.is_italic;
-//                     level = n.data.heading.level;
-//                     continue;
-//                 });
-//             },
-//             .Paragraph => {
-//                 Box().style(&.{
-//                     .layout = .in_line,
-//                     .size = .w(.percent(100)),
-//                     .padding = .tb(6, 6),
-//                 })({
-//                     current = n.child;
-//                     continue;
-//                 });
-//             },
-//
-//             .List => |_| {
-//                 List().style(&.{
-//                     .layout = .left_center,
-//                     .direction = .column,
-//                     .size = .w(.percent(100)),
-//                     .child_gap = 8,
-//                     .list_style = n.data.list.list_type,
-//                 })({
-//                     current = n.child;
-//                     continue;
-//                 });
-//             },
-//             .ListItem => |_| {
-//                 ListItem().style(&.{})({
-//                     current = n.child;
-//                     continue;
-//                 });
-//             },
-//
-//             .Text => |_| {
-//                 if (style.level > 0) {
-//                     switch (style.level) {
-//                         1 => Heading(style.level, n.data.text.content).style(&.{
-//                             .visual = .{ .font_weight = 400, .font_size = 28 },
-//                             .font_family = "IBM Plex Sans,sans-serif",
-//                             .margin = .tb(16, 0),
-//                         }),
-//                         2 => Heading(style.level, n.data.text.content).style(&.{
-//                             .visual = .{ .font_weight = 400, .font_size = 28 },
-//                             .font_family = "IBM Plex Sans,sans-serif",
-//                             .margin = .tb(16, 0),
-//                         }),
-//                         3 => Heading(style.level, n.data.text.content).style(&.{
-//                             .visual = .{ .font_weight = 600, .font_size = 24 },
-//                             .font_family = "IBM Plex Sans,sans-serif",
-//                             .margin = .tb(12, 0),
-//                         }),
-//                         4 => Heading(style.level, n.data.text.content).style(&.{
-//                             .visual = .{ .font_weight = 400, .font_size = 20 },
-//                             .font_family = "IBM Plex Sans,sans-serif",
-//                         }),
-//                         5 => Heading(style.level, n.data.text.content).style(&.{
-//                             .visual = .{ .font_weight = 300, .font_size = 18 },
-//                             .font_family = "IBM Plex Sans,sans-serif",
-//                         }),
-//                         6 => Heading(style.level, n.data.text.content).style(&.{
-//                             .visual = .{ .font_weight = 200 },
-//                             .font_family = "IBM Plex Sans,sans-serif",
-//                         }),
-//                         else => {},
-//                     }
-//                 } else {
-//                     Text(n.data.text.content).style(&.{
-//                         .layout = .in_line,
-//                         .visual = .{
-//                             .font_size = 16,
-//                             .font_weight = if (style.is_bold) 900 else 400,
-//                             .font_style = if (style.is_italic) .italic else null,
-//                         },
-//                     });
-//                 }
-//             },
-//             .Bold => {
-//                 current = n.child;
-//                 is_bold = true;
-//                 is_italic = style.is_italic;
-//                 level = style.level;
-//             },
-//             .Section => {
-//                 Section().id(n.data.section.id).style(&.{
-//                     .child_gap = 4,
-//                     .direction = .column,
-//                     .size = .hw(.percent(100), .grow),
-//                     .layout = .{},
-//                 })({
-//                     current = n.child;
-//                     continue;
-//                 });
-//             },
-//             .Italic => {
-//                 current = n.child;
-//                 is_bold = style.is_bold;
-//                 is_italic = true;
-//                 level = style.level;
-//             },
-//             .CodeBlock => |_| {
-//                 var editor = n.data.code_block.editor;
-//                 Box().style(&.{
-//                     .size = .{ .width = .percent(100), .height = .fit },
-//                     .margin = .tb(16, 32),
-//                     .layout = .center,
-//                 })({
-//                     editor.render(0);
-//                 });
-//             },
-//             .RunBlock => |_| {
-//                 const src = n.data.run_block.src;
-//                 const ptr = @typeInfo(@TypeOf(value)).pointer.child;
-//                 const fncs = @typeInfo(ptr).@"struct".fields;
-//                 inline for (fncs) |func| {
-//                     const anon_func = func.defaultValue() orelse continue;
-//                     if (@hasField(func.type, "args")) {
-//                         if (std.mem.eql(u8, src, anon_func.tag)) {
-//                             @call(.auto, anon_func.function, .{anon_func.args});
-//                         }
-//                     } else if (std.mem.eql(u8, src, anon_func.tag)) {
-//                         @call(.auto, anon_func.function, .{});
-//                     }
-//                 }
-//             },
-//             .Link => |_| {
-//                 const href = n.data.link.href;
-//                 const title = n.data.link.title;
-//                 Link(.{ .url = href, .aria_label = title }).style(&.{
-//                     .layout = .in_line,
-//                     .visual = .{
-//                         .cursor = .pointer,
-//                     },
-//                 })({
-//                     Text(n.data.link.href).style(&.{
-//                         .layout = .in_line,
-//                         .visual = .{
-//                             .font_size = 16,
-//                             .font_weight = if (style.is_bold) 900 else 400,
-//                             .font_style = if (style.is_italic) .italic else null,
-//                         },
-//                     });
-//                 });
-//             },
-//             .Code => |_| {
-//                 Code(n.data.code.content).style(&.{
-//                     .layout = .in_line,
-//                     .visual = .{
-//                         .font_size = 15,
-//                         .font_weight = if (style.is_bold) 900 else 400,
-//                         .text_color = self.style_config.code_style.visual.?.text_color,
-//                     },
-//                     .font_family = "JetBrains Mono,Fira Code,Consolas,monospace",
-//                 });
-//             },
-//             else => {},
-//         }
-//         current = n.next;
-//     }
-// }
 
 /// ## Main Function
 ///

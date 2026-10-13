@@ -14,3 +14,6 @@ pub const StyleConfig = @import("Vaporize.zig").StyleConfig;
 pub const MarkDown = @import("Vaporize.zig").MarkDown;
 pub const SyntaxHighlighter = @import("ZigParser.zig").SyntaxHighlighter;
 pub const renderAST = @import("ZigParser.zig").renderAST;
+pub const Condition = @import("Vaporize.zig").Condition;
+pub const ValidationError = @import("Form.zig").ValidationError;
+

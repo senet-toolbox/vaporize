@@ -5,23 +5,57 @@ const Node = @import("Vaporize.zig").Node;
 const getUnderlyingType = @import("Vaporize.zig").getUnderlyingType;
 const getUnderlyingValue = @import("Vaporize.zig").getUnderlyingValue;
 const FormComponent = @import("vapor").Form;
-const SubmitButton = @import("vapor").SubmitButton;
+const SubmitButton = Vapor.SubmitButton;
 const Text = @import("vapor").Text;
 const Box = @import("vapor").Box;
 const Style = @import("vapor").Style;
+const Condition = @import("Vaporize.zig").Condition;
+const CallbackEntry = @import("Vaporize.zig").CallbackEntry;
+const traversePrint = @import("Vaporize.zig").traversePrint;
+const default_style_config = @import("Vaporize.zig").default_style_config;
+const TextArea = @import("TextArea.zig");
+
+pub const FieldType = enum {
+    string,
+    number,
+    password,
+    email,
+    credit_card,
+    telephone,
+    cvv,
+    expiry,
+    radio,
+};
+
+fn getFieldType(field_value: FieldType) Vapor.Types.InputTypes {
+    return switch (field_value) {
+        .string => .string,
+        .number => .int,
+        .password => .password,
+        .email => .email,
+        .credit_card => .string,
+        .telephone => .string,
+        .cvv => .string,
+        .expiry => .string,
+        .radio => .radio,
+    };
+}
 
 pub var current_parent: ?*Node = null;
-pub fn Form(self: *Self, comptime T: type) type {
+pub fn Form(comptime T: type) type {
     return struct {
         const Vaporize = @This();
 
         const InnerForm = struct {
-            form_data: T,
+            form_data: *T,
             validation_error: ?*ValidationResult = null,
+            on_submit: ?*const fn (T) void,
+            conditionals: std.StringHashMap(bool),
         };
 
-        self: *Self,
-        inner_form: *InnerForm,
+        self: ?*Self = null,
+        inner_form: ?*InnerForm = null,
+        on_submit: ?*const fn (T) void = null,
 
         pub fn compile(vaporize: *Vaporize) !void {
             const allocator = Vapor.arena(.persist);
@@ -29,16 +63,23 @@ pub fn Form(self: *Self, comptime T: type) type {
                 Vapor.printErr("Error: {any}\n", .{err});
                 unreachable;
             };
-            inner_self.* = try Self.init(allocator, self.style_config);
+            const style = if (Self.global_style) |s| s else Self.default_style_config;
+            inner_self.* = try Self.init(allocator, style);
             const inner_form = try allocator.create(InnerForm);
             const validation_error = allocator.create(ValidationResult) catch |err| {
                 Vapor.printErr("Error: {any}\n", .{err});
                 unreachable;
             };
             validation_error.* = ValidationResult.init(allocator);
+
+            const form_data = try allocator.create(T);
+            form_data.* = T{};
+
             inner_form.* = .{
-                .form_data = T{},
+                .form_data = form_data,
                 .validation_error = validation_error,
+                .conditionals = std.StringHashMap(bool).init(Vapor.arena(.persist)),
+                .on_submit = vaporize.on_submit,
             };
             vaporize.inner_form = inner_form;
             vaporize.* = .{
@@ -46,18 +87,202 @@ pub fn Form(self: *Self, comptime T: type) type {
                 .inner_form = inner_form,
             };
 
-            const root = try vaporize.self.createNode(.Form);
+            const root = try vaporize.self.?.createNode(.Form);
             current_parent = null;
-            vaporize.self.root = root;
+            vaporize.self.?.root = root;
             field_index = 0;
-            vaporize.self.generateForm(vaporize.self.root, "root", T, {}, T, vaporize.inner_form) catch |err| {
+            vaporize.self.?.generateForm(vaporize.self.?.root, "root", T, {}, T, vaporize.inner_form.?) catch |err| {
                 Vapor.printErr("Error: {any}\n", .{err});
             };
         }
         pub fn render(vaporize: *const Vaporize) void {
-            vaporize.self.traverseForm(vaporize.self.root, vaporize.inner_form) catch |err| {
-                Vapor.printErr("Error: {any}\n", .{err});
+            if (vaporize.self == null) {
+                std.log.err("Please Instaniate vaporize before using the Form render function\n", .{});
+                return;
+            }
+            if (vaporize.inner_form == null) {
+                std.log.err("Please Instaniate vaporize before using the Form render function, InnerForm is null\n", .{});
+                return;
+            }
+            traverseForm(vaporize.self.?, vaporize.self.?.root, vaporize.inner_form.?) catch |err| {
+                std.log.err("Please Instaniate vaporize before using the Form render function\n", .{});
+                std.log.err("{any}\n", .{err});
             };
+        }
+
+        pub fn traverseForm(self: *Self, node: ?*Node, value: *InnerForm) !void {
+            var current = node;
+            while (current) |n| {
+                switch (n.tag) {
+                    .Form => {
+                        FormComponent(validateForm, .{value})
+                            .layout(.top_left)
+                            .direction(.column)
+                            .spacing(8)
+                            .padding(.tb(8, 8))
+                            .width(.percent(100))
+                            .children({
+                            self.traverseForm(n.child, .{}, value) catch {
+                                Text("Failed to Parse Form").end();
+                                return error.TraverseForm;
+                            };
+
+                            const button_style: Vapor.Types.Style = self.style_config.submit_style;
+                            SubmitButton().style(&button_style).children({
+                                Text("Submit").end();
+                            });
+                        });
+                    },
+                    else => {},
+                }
+                current = n.next;
+            }
+        }
+
+        // Main validation function
+        pub fn validateForm(form_closure: *InnerForm, evt: *Vapor.Event) void {
+            evt.preventDefault();
+
+            if (!@hasField(@typeInfo(@TypeOf(form_closure)).pointer.child, "form_data")) {
+                Vapor.print("form_data not defined\n", .{});
+                return;
+            }
+            if (!@hasField(@typeInfo(@TypeOf(form_closure)).pointer.child, "on_submit")) {
+                Vapor.print("on_submit not defined\n", .{});
+                return;
+            }
+
+            const form_value = @field(form_closure, "form_data");
+            const on_submit = @field(form_closure, "on_submit");
+
+            const result: *ValidationResult = form_closure.validation_error orelse {
+                Vapor.printErr("validation_error not defined\n", .{});
+                return;
+            };
+            errdefer result.deinit();
+
+            // Check if validations exist
+            if (!@hasDecl(@TypeOf(form_value.*), "__validations")) {
+                Vapor.printErr("No validations defined for form\n", .{});
+                return;
+            }
+
+            const validations = @TypeOf(form_value.*).__validations;
+
+            // Parse form data
+            const parsed_form = evt.formData(form_value) orelse {
+                result.valid = false;
+                result.errors.append(.{
+                    .field = "form",
+                    .message = "Failed to parse form data",
+                }) catch {};
+                return;
+            };
+
+            // Get form fields
+            const FormType = @TypeOf(parsed_form);
+            const form_fields = @typeInfo(FormType).@"struct".fields;
+
+            result.errors.clearRetainingCapacity();
+
+            // Validate each field
+            inline for (form_fields) |field| {
+                if (@typeInfo(field.type) == .@"struct") {
+                    const inner_fields = @typeInfo(field.type).@"struct".fields;
+                    const section = @field(parsed_form, field.name);
+
+                    inline for (inner_fields) |inner_field| {
+                        const field_name = inner_field.name;
+
+                        // Skip if no validation for this field
+                        if (!@hasField(@TypeOf(validations), field_name)) continue;
+
+                        const field_value = @field(section, field_name);
+                        const validation = @field(validations, field_name);
+
+                        // Validate the field
+                        const field_valid = validateField(field_name, field_value, validation, result) catch |err| {
+                            Vapor.printErr("Validation failed: {any}\n", .{err});
+                            return;
+                        };
+                        if (!field_valid) {
+                            result.valid = false;
+                        } else {
+                            if (validation.match) {
+                                const target_field_value = @field(section, validation.target_field);
+                                const match_valid = matchField(field_value, target_field_value);
+                                Vapor.printErr("Validation failed: {any} {any}\n", .{ match_valid, validation.match });
+                                if (!match_valid) {
+                                    result.valid = false;
+                                    result.errors.append(.{
+                                        .field = field_name,
+                                        .message = "Values do not match",
+                                    }) catch |err| {
+                                        Vapor.printErr("Error: {any}\n", .{err});
+                                    };
+                                }
+                            } else {
+                                result.errors.append(.{
+                                    .field = field_name,
+                                    .message = "",
+                                }) catch |err| {
+                                    Vapor.printErr("Error: {any}\n", .{err});
+                                };
+                            }
+                        }
+                    }
+                } else {
+
+                    //////////////////////
+
+                    const field_name = field.name;
+
+                    // Skip if no validation for this field
+                    if (!@hasField(@TypeOf(validations), field_name)) continue;
+
+                    const field_value = @field(parsed_form, field_name);
+                    const validation = @field(validations, field_name);
+
+                    // Validate the field
+                    const field_valid = validateField(field_name, field_value, validation, result) catch |err| {
+                        Vapor.printErr("Validation failed: {any}\n", .{err});
+                        return;
+                    };
+                    if (!field_valid) {
+                        result.valid = false;
+                    } else {
+                        if (validation.match) {
+                            const target_field_value = @field(parsed_form, validation.target_field);
+                            const match_valid = matchField(field_value, target_field_value);
+                            Vapor.printErr("Validation failed: {any} {any}\n", .{ match_valid, validation.match });
+                            if (!match_valid) {
+                                result.valid = false;
+                                result.errors.append(.{
+                                    .field = field_name,
+                                    .message = "Values do not match",
+                                }) catch |err| {
+                                    Vapor.printErr("Error: {any}\n", .{err});
+                                };
+                            }
+                        } else {
+                            result.errors.append(.{
+                                .field = field_name,
+                                .message = "",
+                            }) catch |err| {
+                                Vapor.printErr("Error: {any}\n", .{err});
+                            };
+                        }
+                    }
+                }
+            }
+
+            if (on_submit) |submit| {
+                submit(parsed_form);
+            }
+
+            Vapor.cycle();
+
+            return;
         }
     };
 }
@@ -73,7 +298,7 @@ pub const Validation = struct {
     max_value: ?i64 = null,
 
     // Field type validation
-    field_type: ?Vapor.Types.InputTypes = .string,
+    field_type: ?FieldType = .string,
 
     // Content validation
     includes: ?[]const u8 = null,
@@ -85,7 +310,12 @@ pub const Validation = struct {
     trim: bool = true, // Trim whitespace before validation
 
     // Custom validation function
-    custom: ?*const fn (value: anytype) bool = null,
+    // custom: ?*const fn (value: anytype) bool = null,
+    match: bool = false,
+    target_field: []const u8 = "",
+    depends_on: ?[]const u8 = null,
+
+    placeholder: ?[]const u8 = null,
 };
 
 // Validation error structure
@@ -110,87 +340,6 @@ pub const ValidationResult = struct {
     }
 };
 
-// Main validation function
-pub fn validateForm(form_closure: anytype, evt: *Vapor.Event) void {
-    evt.preventDefault();
-
-    if (!@hasField(@typeInfo(@TypeOf(form_closure)).pointer.child, "form_data")) {
-        Vapor.print("form_data not defined\n", .{});
-        return;
-    }
-    const form_value = @field(form_closure, "form_data");
-
-    const result: *ValidationResult = form_closure.validation_error orelse {
-        Vapor.printErr("validation_error not defined\n", .{});
-        return;
-    };
-    errdefer result.deinit();
-
-    // Check if validations exist
-    if (!@hasDecl(@TypeOf(form_value), "__validations")) {
-        Vapor.print("No validations defined for form\n", .{});
-        return;
-    }
-
-    const validations = @TypeOf(form_value).__validations;
-
-    // Parse form data
-    const parsed_form = evt.formData(&form_value) orelse {
-        result.valid = false;
-        result.errors.append(.{
-            .field = "form",
-            .message = "Failed to parse form data",
-        }) catch {};
-        return;
-    };
-
-    // Get form fields
-    const FormType = @TypeOf(parsed_form);
-    const form_fields = @typeInfo(FormType).@"struct".fields;
-
-    result.errors.clearRetainingCapacity();
-
-    // Validate each field
-    inline for (form_fields) |field| {
-        const field_name = field.name;
-
-        // Skip if no validation for this field
-        if (!@hasField(@TypeOf(validations), field_name)) continue;
-
-        const field_value = @field(parsed_form, field_name);
-        const validation = @field(validations, field_name);
-
-        // Validate the field
-        const field_valid = validateField(field_name, field_value, validation, result) catch |err| {
-            Vapor.printErr("Validation failed: {any}\n", .{err});
-            return;
-        };
-        if (!field_valid) {
-            result.valid = false;
-        } else {
-            result.errors.append(.{
-                .field = field_name,
-                .message = "",
-            }) catch |err| {
-                Vapor.printErr("Error: {any}\n", .{err});
-            };
-        }
-    }
-
-    Vapor.printErr("validation_error: {any}\n", .{form_closure.validation_error.?.errors.items.len});
-    // for (result.errors.items) |err| {
-    //     Vapor.printErr("{s}: {s}\n", .{ err.field, err.message });
-    // }
-    //
-    // for (form_closure.validation_error.?.errors.items) |err| {
-    //     Vapor.printErr("{s}: {s}\n", .{ err.field, err.message });
-    // }
-
-    Vapor.cycle();
-
-    return;
-}
-
 // Validate individual field
 fn validateField(
     field_name: []const u8,
@@ -214,9 +363,15 @@ fn validateField(
 
     // Required check
     if (validation.required) {
-        const is_empty = switch (@typeInfo(ValueType)) {
+        const is_empty = blk: switch (@typeInfo(ValueType)) {
             .pointer => |ptr| switch (ptr.size) {
-                .slice => value.len == 0,
+                .slice => {
+                    if (ptr.child == []const u8) {
+                        break :blk value[0].len == 0;
+                    } else {
+                        break :blk value.len == 0;
+                    }
+                },
                 else => false,
             },
             .optional => value == null,
@@ -233,8 +388,13 @@ fn validateField(
     switch (@typeInfo(ValueType)) {
         .pointer => |ptr| switch (ptr.size) {
             .slice => {
+                var str_value: []const u8 = "";
+                if (ptr.child == []const u8) {
+                    str_value = value[0];
+                } else {
+                    str_value = value;
+                }
                 // String validations
-                var str_value = value;
 
                 // Trim if requested
                 if (validation.trim) {
@@ -300,6 +460,9 @@ fn validateField(
                         .password => validatePassword(str_value),
                         // .url => validateUrl(str_value),
                         .telephone => validatePhone(str_value),
+                        .credit_card => validateCreditCard(str_value),
+                        .cvv => validateCvv(str_value),
+                        .expiry => validateExpiry(str_value),
                         // .alphanumeric => validateAlphanumeric(str_value),
                         else => true,
                     };
@@ -310,6 +473,7 @@ fn validateField(
                             .password => "Password must be at least 8 characters with uppercase, lowercase, and numbers",
                             // .url => "Must be a valid URL",
                             .telephone => "Must be a valid phone number",
+                            .credit_card => "Must be a valid credit card number",
                             // .alphanumeric => "Must contain only letters and numbers",
                             else => "Invalid format",
                         };
@@ -352,12 +516,12 @@ fn validateField(
     }
 
     // Custom validation
-    if (validation.custom) |custom_fn| {
-        if (!custom_fn(value)) {
-            try addError(result, field_name, validation, "Validation failed");
-            is_valid = false;
-        }
-    }
+    // if (validation.custom) |custom_fn| {
+    //     if (!custom_fn(value)) {
+    //         try addError(result, field_name, validation, "Validation failed");
+    //         is_valid = false;
+    //     }
+    // }
 
     return is_valid;
 }
@@ -408,6 +572,10 @@ fn validatePassword(password: []const u8) bool {
     return has_upper and has_lower and has_digit;
 }
 
+fn matchField(password: []const u8, target: []const u8) bool {
+    return std.mem.eql(u8, password, target);
+}
+
 fn validateUrl(url: []const u8) bool {
     // Basic URL validation
     if (url.len < 10) return false;
@@ -442,38 +610,152 @@ fn validateAlphanumeric(str: []const u8) bool {
     return true;
 }
 
+fn validateCreditCard(card: []const u8) bool {
+    // Extract only digits
+    var digits: [16]u8 = undefined;
+    var digit_count: usize = 0;
+
+    for (card) |char| {
+        if (std.ascii.isDigit(char)) {
+            if (digit_count < 16) {
+                digits[digit_count] = char;
+                digit_count += 1;
+            }
+        } else if (char != ' ' and char != '-') {
+            // Invalid character
+            return false;
+        }
+    }
+
+    // Most cards are 13-16 digits
+    if (digit_count < 13 or digit_count > 16) return false;
+
+    // Luhn algorithm (checksum validation)
+    var sum: u32 = 0;
+    var is_even = false;
+
+    var i: usize = digit_count;
+    while (i > 0) {
+        i -= 1;
+        var digit: u32 = digits[i] - '0';
+
+        if (is_even) {
+            digit *= 2;
+            if (digit > 9) {
+                digit -= 9;
+            }
+        }
+
+        sum += digit;
+        is_even = !is_even;
+    }
+
+    return (sum % 10) == 0;
+}
+
+fn validateCvv(cvv: []const u8) bool {
+    // Extract only digits
+    var digit_count: usize = 0;
+
+    for (cvv) |char| {
+        if (std.ascii.isDigit(char)) {
+            digit_count += 1;
+        } else {
+            // CVV should only contain digits
+            return false;
+        }
+    }
+
+    // CVV is 3 digits for most cards, 4 for Amex
+    return digit_count >= 3 and digit_count <= 4;
+}
+
+fn validateExpiry(expiry: []const u8) bool {
+    // Extract only digits
+    var digits: [4]u8 = undefined;
+    var digit_count: usize = 0;
+
+    for (expiry) |char| {
+        if (std.ascii.isDigit(char)) {
+            if (digit_count < 4) {
+                digits[digit_count] = char;
+                digit_count += 1;
+            }
+        } else if (char != '/') {
+            // Only digits and slash allowed
+            return false;
+        }
+    }
+
+    // Need exactly 4 digits (MMYY)
+    if (digit_count != 4) return false;
+
+    // Parse month (first 2 digits)
+    const month = (@as(u32, digits[0] - '0') * 10) + @as(u32, digits[1] - '0');
+
+    // Month must be 01-12
+    if (month < 1 or month > 12) return false;
+
+    // Parse year (last 2 digits)
+    const year = (@as(u32, digits[2] - '0') * 10) + @as(u32, digits[3] - '0');
+
+    // Basic year range check (00-99 maps to 2000-2099)
+    // You could add current date checking here if needed
+    _ = year;
+
+    return true;
+}
+
 var field_index: usize = 0;
 pub fn generateForm(self: *Self, parent: *Node, field_name: []const u8, comptime VT: type, value: anytype, comptime form_type: type, form_value: anytype) !void {
     current_parent = current_parent orelse parent;
-    const validations = @TypeOf(form_type.__validations);
+    const validations = if (@hasDecl(form_type, "__validations")) blk: {
+        break :blk @TypeOf(form_type.__validations);
+    } else @TypeOf(.{});
     switch (@typeInfo(VT)) {
         .@"struct" => {
-            const struct_node = try self.createNode(.Box);
-            self.attachChild(current_parent.?, struct_node);
-            current_parent = struct_node;
-            const fields = @typeInfo(VT).@"struct".fields;
-            inline for (fields) |field| {
-                const FT = field.type;
-                var field_value: getUnderlyingType(FT) = undefined;
-                field_value = field.defaultValue() orelse {
-                    try self.generateForm(current_parent.?, field.name, field.type, {}, form_type, form_value);
-                    continue;
-                };
-                try self.generateForm(current_parent.?, field.name, field.type, field_value, form_type, form_value);
-                field_index += 1;
+            if (VT == Condition(form_type)) {
+                const condition = Vapor.arena(.persist).create(Condition(form_type)) catch unreachable;
+                condition.* = Condition(form_type){ .callback = value.callback, .value = value.value, .target_field = value.target_field };
+                if (value.target_field) |existing| {
+                    form_value.conditionals.put(existing, false) catch unreachable;
+                }
+                const opaque_condition: *anyopaque = @ptrCast(@alignCast(condition));
+                const node = try self.createNode(.Switch);
+                node.data = .{ .toggle = .{
+                    .title = field_name,
+                    .condition = opaque_condition,
+                } };
+                self.attachChild(current_parent.?, node);
+            } else {
+                var struct_node: *Node = undefined;
+                if (std.mem.eql(u8, field_name, "root")) {
+                    struct_node = try self.createNode(.Box);
+                } else {
+                    var local_parent = current_parent.?;
+                    struct_node = try self.createNode(.Box);
+                    self.attachChild(local_parent, struct_node);
+                    local_parent = struct_node;
+                    struct_node = try self.createNode(.FormSection);
+                    struct_node.data = .{ .formsection = .{ .title = field_name } };
+                }
+                self.attachChild(current_parent.?, struct_node);
+                current_parent = struct_node;
+                const fields = @typeInfo(VT).@"struct".fields;
+                inline for (fields) |field| {
+                    const FT = field.type;
+                    var field_value: getUnderlyingType(FT) = undefined;
+                    field_value = field.defaultValue() orelse {
+                        try self.generateForm(current_parent.?, field.name, field.type, {}, form_type, form_value);
+                        continue;
+                    };
+                    try self.generateForm(current_parent.?, field.name, field.type, field_value, form_type, form_value);
+                    field_index += 1;
+                }
+                current_parent = parent;
             }
-            current_parent = parent;
         },
         .pointer => |ptr| {
-            // switch (VT) {
-            //     []const u8 => {
-            //         Vapor.print("[]const u8 slice\n", .{});
-            //         const node = try self.createNode(.Text);
-            //         node.data = .{ .text = .{ .content = value } };
-            //         self.attachChild(current_parent.?, node);
-            //     },
-            //     else => {},
-            // }
             switch (ptr.size) {
                 .c => {
                     Vapor.print("c\n", .{});
@@ -502,25 +784,40 @@ pub fn generateForm(self: *Self, parent: *Node, field_name: []const u8, comptime
                     }
                 },
                 .slice => {
-                    // Here we switch on the validation value
-                    var _type: Vapor.Types.InputTypes = .string;
-                    const fields = @typeInfo(validations).@"struct".fields; // this is like username password ect
-                    inline for (fields) |field| blk: {
-                        if (std.mem.eql(u8, field_name, field.name)) { // this checks that we are looping through the right field ie username
-                            const field_validation = field.defaultValue() orelse continue; // This is the Validation struct
-                            const field_validation_type = @field(field_validation, "field_type");
-                            _type = field_validation_type.?;
-                            break :blk;
+                    if (ptr.child == u8) {
+                        // Here we switch on the validation value
+                        var _type: FieldType = .string;
+                        var placeholder: ?[]const u8 = null;
+                        const fields = @typeInfo(validations).@"struct".fields; // this is like username password ect
+                        inline for (fields) |field| blk: {
+                            if (std.mem.eql(u8, field_name, field.name)) { // this checks that we are looping through the right field ie username
+                                const field_validation = field.defaultValue() orelse continue; // This is the Validation struct
+                                const field_validation_type = @field(field_validation, "field_type");
+                                _type = field_validation_type.?;
+                                placeholder = @field(field_validation, "placeholder");
+                                break :blk;
+                            }
                         }
+                        const node = try self.createNode(.TextField);
+                        node.data = .{ .textfield = .{
+                            .title = field_name,
+                            .type = _type,
+                            .err = form_value.validation_error,
+                            .err_index = field_index,
+                            .default_value = .{ .string = value },
+                            .placeholder = if (placeholder) |p| .{ .string = p } else null,
+                        } };
+                        self.attachChild(current_parent.?, node);
+                    } else if (ptr.child == []const u8) {
+                        // Here we switch on the validation value
+                        const node = try self.createNode(.TextArea);
+                        node.data = .{ .textarea = .{
+                            .title = field_name,
+                            .err = form_value.validation_error,
+                            .err_index = field_index,
+                        } };
+                        self.attachChild(current_parent.?, node);
                     }
-                    const node = try self.createNode(.TextField);
-                    node.data = .{ .textfield = .{
-                        .title = field_name,
-                        .type = _type,
-                        .err = form_value.validation_error,
-                        .err_index = field_index,
-                    } };
-                    self.attachChild(current_parent.?, node);
                 },
             }
         },
@@ -528,75 +825,36 @@ pub fn generateForm(self: *Self, parent: *Node, field_name: []const u8, comptime
             const node = try self.createNode(.TextField);
             node.data = .{ .textfield = .{
                 .title = field_name,
-                .type = .int,
+                .type = .number,
                 .err = form_value.validation_error,
                 .err_index = field_index,
+                .config = .{ .min = 0, .max = std.math.maxInt(VT) },
+                .default_value = .{ .number = 0 },
             } };
             self.attachChild(current_parent.?, node);
         },
         .@"enum" => {
-            Vapor.print("enum\n", .{});
-            // const node = try self.createNode(.TextField);
-            // node.data = .{ .textfield = .{ .title = field_name } };
-            // self.attachChild(current_parent.?, node);
+            const node = try self.createNode(.Dropdown);
+            const enums = @typeInfo(VT).@"enum".fields;
+            const list = try Vapor.persist.alloc([]const u8, enums.len);
+            inline for (enums, 0..) |field, i| {
+                list[i] = field.name;
+            }
+            node.data = .{
+                .dropdown = .{ .title = field_name, .tags = list },
+            };
+            self.attachChild(current_parent.?, node);
         },
-        // .float => {
-        //     const node = try self.createNode(.Text);
-        //     node.data = .{ .text = .{ .content = std.fmt.allocPrint(self.allocator, "{d}", .{value}) catch unreachable } };
-        //     self.attachChild(current_parent.?, node);
-        // },
-        // .array => {
-        //     const node = try self.createNode(.List);
-        //     node.data = .{ .list = .{ .list_type = .disc } };
-        //     self.attachChild(current_parent.?, node);
-        //     current_parent = node;
-        //     for (value) |item| {
-        //         const list_item_node = try self.createNode(.ListItem);
-        //         current_parent = list_item_node;
-        //         try self.generate(current_parent.?, field_name, item);
-        //         self.attachChild(node, list_item_node);
-        //     }
-        //     current_parent = parent;
-        // },
         else => {},
     }
 }
 
-pub inline fn traverseForm(self: *Self, node: ?*Node, value: anytype) !void {
-    var current = node;
-    while (current) |n| {
-        switch (n.tag) {
-            .Form => {
-                FormComponent(validateForm, value).style(&.{
-                    .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .padding = .tb(8, 8),
-                    .layout = .center,
-                    .direction = .column,
-                    .child_gap = 16,
-                })({
-                    try self.traverse(n.child, .{}, value);
-
-                    const button_style: Vapor.Types.Style = self.style_config.button_style;
-                    SubmitButton().style(&button_style)({
-                        Text("Submit").end();
-                    });
-                });
-            },
-            else => {},
-        }
-        current = n.next;
+fn enumNames(comptime E: type) []const []const u8 {
+    const fields = @typeInfo(E).@"enum".fields;
+    comptime var names: [fields.len][]const u8 = undefined;
+    inline for (fields, 0..) |field, i| {
+        names[i] = field.name;
     }
-}
-
-pub fn traverseFormValue(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
-    var current = node;
-    while (current) |n| {
-        switch (n.tag) {
-            .Root => {
-                try self.traverse(n.child, style, value);
-            },
-            else => {},
-        }
-        current = n.next;
-    }
+    const final = names;
+    return &final;
 }
