@@ -794,7 +794,7 @@ fn renderLabel(
     text_color: Vapor.Types.Color,
     background: Vapor.Types.Color,
     field_type: TextFieldType,
-) Vapor.BuilderClose(.pure) {
+) Vapor.Builder(.pure) {
     if (field_type == .radio) {
         return Label(label)
             .background(background)
@@ -857,7 +857,7 @@ pub fn render(field: *TextField) void {
     const label_left: f32 = if (is_focused or field.trans_label) 12 + 12 else 12;
 
     const z_index: f32 = if (is_focused) 10 else 0;
-    const text_color: Vapor.Types.Color = if (is_focused) field.tint_color else .transparentizeHex(.palette(.text_color), 0.5);
+    const text_color: Vapor.Types.Color = if (is_focused) field.tint_color else .transparentize(.palette(.text_color), 0.5);
 
     field.is_focused = is_focused;
     field.scale = scale;
@@ -865,7 +865,7 @@ pub fn render(field: *TextField) void {
     if (field_type != .radio) {
         container = container
             .border(.round(if (is_focused) .palette(.tint) else .palette(.border_color_light), .all(12)))
-            .shadow(.glow(3, if (is_focused) .transparentizeHex(.palette(.tint), 0.2) else .transparent))
+            .shadow(.glow(3, if (is_focused) .transparentize(.palette(.tint), 0.2) else .transparent))
             .direction(.column)
             .width(.percent(100));
     }
@@ -878,7 +878,7 @@ pub fn render(field: *TextField) void {
         .background(background)
         .children({
         const field_id = Vapor.fmtln("{s}_{s}", .{ @tagName(field_type), stable_id });
-        var label_component: ?Vapor.BuilderClose(.pure) = null;
+        var label_component: ?Vapor.Builder(.pure) = null;
         if (field_type != .radio) {
             if (field.label) |label| {
                 label_component = renderLabel(label, label_left, trans, scale, z_index, text_color, background, field_type);
@@ -955,7 +955,7 @@ pub fn render(field: *TextField) void {
                 text_field
                     .pos(.absolute)
                     .onEvent(.focus, handleFocus, .{ stable_id, field })
-                    .onEventCtx(.blur, handleBlur, .{ stable_id, field })
+                    .onEvent(.blur, handleBlur, .{ stable_id, field })
                     .width(.percent(100))
                     .onEvent(.input, passwordCallback, .{field})
                     .border(.none)
@@ -967,7 +967,7 @@ pub fn render(field: *TextField) void {
                 text_field
                     .pos(.absolute)
                     .onEvent(.focus, handleFocus, .{ stable_id, field })
-                    .onEventCtx(.blur, handleBlur, .{ stable_id, field })
+                    .onEvent(.blur, handleBlur, .{ stable_id, field })
                     .border(.none)
                     .width(.percent(100))
                     .onEvent(.input, numberCallback, .{field})
@@ -1188,7 +1188,7 @@ pub fn Component(field: *TextField, component: ?*const fn (*TextField) Vapor.Bui
     const label_left: f32 = if (is_focused or field.trans_label) 12 + 12 else 12;
 
     const z_index: f32 = if (is_focused) 10 else 0;
-    const text_color: Vapor.Types.Color = if (is_focused) field.tint_color else .transparentizeHex(.palette(.text_color), 0.5);
+    const text_color: Vapor.Types.Color = if (is_focused) field.tint_color else .transparentize(.palette(.text_color), 0.5);
 
     field.is_focused = is_focused;
 
@@ -1208,12 +1208,12 @@ pub fn Component(field: *TextField, component: ?*const fn (*TextField) Vapor.Bui
                 .pos(.relative)
                 .border(.round(if (is_focused) .palette(.tint) else .palette(.border_color_light), .all(12)))
                 .background(background)
-                .shadow(.glow(3, if (is_focused) .transparentizeHex(.palette(.tint), 0.2) else .transparent));
+                .shadow(.glow(3, if (is_focused) .transparentize(.palette(.tint), 0.2) else .transparent));
         }
         comp
             .children({
             const field_id = Vapor.fmtln("{s}_{s}", .{ @tagName(field_type), stable_id });
-            var label_component: ?Vapor.BuilderClose(.pure) = null;
+            var label_component: ?Vapor.Builder(.pure) = null;
             if (field.label) |label| {
                 label_component = renderLabel(label, label_left, trans, scale, z_index, text_color, background);
                 label_component.?.fieldName(field_id).end();
@@ -1277,7 +1277,7 @@ pub fn Component(field: *TextField, component: ?*const fn (*TextField) Vapor.Bui
                     text_field
                         .pos(.absolute)
                         .onEvent(.focus, handleFocus, .{ stable_id, field })
-                        .onEventCtx(.blur, handleBlur, .{ stable_id, field })
+                        .onEvent(.blur, handleBlur, .{ stable_id, field })
                         .width(.percent(100))
                         .onEvent(.input, passwordCallback, .{field})
                         .border(.none)
@@ -1289,7 +1289,7 @@ pub fn Component(field: *TextField, component: ?*const fn (*TextField) Vapor.Bui
                     text_field
                         .pos(.absolute)
                         .onEvent(.focus, handleFocus, .{ stable_id, field })
-                        .onEventCtx(.blur, handleBlur, .{ stable_id, field })
+                        .onEvent(.blur, handleBlur, .{ stable_id, field })
                         .border(.none)
                         .width(.percent(100))
                         .onEvent(.input, numberCallback, .{field})

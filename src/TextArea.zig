@@ -297,7 +297,7 @@ fn ErasedField(field: Field) Vapor.TextFieldBuilder(.pure) {
         .height(.elastic(36, 256))
         .fieldName(field.field_name)
         .font(14, 300, null)
-        .padding(.tblr(8, 8, 12, 12))
+        .padding(.xy(12, 8))
         .resize(.none)
         .inlineStyle("field-sizing: content;", .{})
         .outline(.none, null)
@@ -412,9 +412,9 @@ pub fn render(field: Field) Vapor.TextFieldBuilder(.pure) {
 
     return text_field
         .border(.round(if (is_focused) .palette(.tint) else .palette(.border_color_light), .all(8)))
-        .outline(.none,null)
+        .outline(.none, null)
         .background(background)
-        .shadow(.glow(3, if (is_focused) .transparentizeHex(.palette(.tint), 0.2) else .transparent))
+        .shadow(.glow(3, if (is_focused) .transparentize(.palette(.tint), 0.2) else .transparent))
         // OVERRIDE Padding here to account for icons
         .onEvent(.focus, handleFocus, .{stable_id})
         .onEvent(.blur, handleBlur, .{stable_id})

@@ -30,22 +30,22 @@ fn toggleIcon(snippet: *Snippet) void {
 pub fn code(snippet: *Snippet, text: []const u8) void {
     Button(copy, .{ snippet, text })
         .style(&.{
-        .visual = .{
-            .border = .simple(.transparentize(.black, 0.2)),
-            .text_color = .black,
-            .cursor = .pointer,
-            .background = .palette(.background),
-            .shadow = .card(.transparentizeHex(.palette(.tint), 0.2)),
-        },
-        .padding = .all(8),
-        .size = .square_percent(100),
-        .child_gap = 16,
-        .layout = .flex,
-        .interactive = .{
-            .hover = .{ .text_color = .palette(.tint), .border = .simple(.palette(.tint)) },
-        },
-        .position = .relative,
-    }).children({
+            .visual = .{
+                .border = .thin(.transparentize(.black, 0.2)),
+                .text_color = .black,
+                .cursor = .pointer,
+                .background = .palette(.background),
+                .shadow = .card(.transparentize(.palette(.tint), 0.2)),
+            },
+            .padding = .all(8),
+            .size = .squarePercent(100),
+            .child_gap = 16,
+            .layout = .flex,
+            .interactive = .{
+                .hover = .{ .text_color = .palette(.tint), .border = .thin(.palette(.tint)) },
+            },
+            .position = .relative,
+        }).children({
         Text(text)
             .font(16, null, null)
             .ellipsis(.dot)
@@ -55,10 +55,10 @@ pub fn code(snippet: *Snippet, text: []const u8) void {
             .end();
         Box().style(&.{
             // .position = .{ .type = .absolute, .right = .px(8), .top = .px(8) },
-            .size = .square_px(22),
+            .size = .squarePx(22),
             .transition = .{ .duration = 100 },
             .visual = .{
-                .border_radius = .all(4),
+                .border = .{ .radius = .all(4) },
                 .background = .transparent,
                 .cursor = .pointer,
             },

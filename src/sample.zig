@@ -1,4 +1,3 @@
-
 /// ## The Parser
 ///
 /// This struct holds the state of the parsing process.
@@ -834,5 +833,3 @@ pub const Parser = struct {
         }
     }
 };
-
-

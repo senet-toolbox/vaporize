@@ -8,7 +8,7 @@ var active_color: Vapor.Types.Color = .palette(.background);
 var inactive_color: Vapor.Types.Color = .palette(.background);
 var inactive_background: Vapor.Types.Color = .palette(.border_color_light);
 // var active_background: Vapor.Types.Color = .hex("#FFE100");
-pub var active_background: Vapor.Types.Color = .transparentizeHex(.palette(.tint), 0.7);
+pub var active_background: Vapor.Types.Color = .transparentize(.palette(.tint), 0.7);
 
 var border_radius: u8 = 4;
 var duration: u32 = 100;
@@ -32,8 +32,8 @@ fn Circle(switch_options: *SwitchOptions) void {
     Box()
         .width(.px(20))
         .height(.px(20))
-        .layer(.dot(0.5, 6, .transparentizeHex(.black, 0.3)))
-        .shadow(.insetGlow(2, 0, 2, .transparentizeHex(.black, 0.1)))
+        .layer(.dot(0.5, 6, .transparentize(.black, 0.3)))
+        .shadow(Vapor.Types.Shadow.init().dropSpread(2, 0, 2, 1, .transparentize(.black, 0.1)))
         .border(.{
             .thickness = .none,
             .radius = .all(border_radius),

@@ -933,7 +933,7 @@ pub const SyntaxHighlighter = struct {
                             .padding(.all(8))
                             .layout(.center)
                             .border(.round(.black, .all(4)))
-                            .background(.transparentizeHex(.black, 0.2))
+                            .background(.transparentize(.black, 0.2))
                             .children({
                             Vapor.Svg(.{ .svg = svg_bug }).style(&.{
                                 .size = .{ .height = .px(16), .width = .px(16) },
@@ -971,7 +971,7 @@ pub const SyntaxHighlighter = struct {
                 .root => {
                     Box().style(&.{
                         .position = .relative,
-                        .size = .square_percent(100),
+                        .size = .squarePercent(100),
                         .direction = .column,
                         .layout = .{ .x = .start, .y = .start },
                     })({
@@ -979,7 +979,7 @@ pub const SyntaxHighlighter = struct {
                             Box().style(&.{
                                 .layout = .x_between_center,
                                 .size = .w(.percent(100)),
-                                .padding = .tblr(8, 8, 12, 12),
+                                .padding = .xy(12, 8),
                                 .visual = .{
                                     .border = .bottom(.palette(.disabled)),
                                 },
@@ -997,10 +997,10 @@ pub const SyntaxHighlighter = struct {
                                     CtxButton(copy, .{highlighter})
                                         .style(&.{
                                         .position = .relative,
-                                        .size = .square_px(22),
+                                        .size = .squarePx(22),
                                         .transition = .{ .duration = 100 },
                                         .visual = .{
-                                            .border_radius = .all(4),
+                                            .border = .{ .radius = .all(4) },
                                             .background = .transparent,
                                             .text_color = .palette(.disabled),
                                             .cursor = .pointer,
@@ -1029,8 +1029,8 @@ pub const SyntaxHighlighter = struct {
                         }
 
                         Box().style(&.{
-                            .size = .square_percent(100),
-                            .scroll = .scroll_x(),
+                            .size = .squarePercent(100),
+                            .scroll = .scrollX(),
                             .direction = .column,
                             .layout = .{ .x = .start, .y = .start },
                             .padding = .all(12),
@@ -1048,7 +1048,7 @@ pub const SyntaxHighlighter = struct {
                             .size = .h(.px(18)),
                             .visual = .{ .white_space = .pre, .background = .hex("#00FF00") },
                             .layout = .left_center,
-                            .padding = .l(24),
+                            .padding = .{ .left = 24 },
                             .font_family = "DM Mono, monospace", // "IBM Plex Mono,monospace",
                         })({
                             try highlighter.renderAST(n.child);
@@ -1058,7 +1058,7 @@ pub const SyntaxHighlighter = struct {
                             .size = .h(.px(18)),
                             .visual = .{ .white_space = .pre, .background = .hex("#00FF00") },
                             .layout = .left_center,
-                            .padding = .l(24),
+                            .padding = .{ .left = 24 },
                             .font_family = "DM Mono, monospace", // "IBM Plex Mono,monospace",
                         })({
                             try highlighter.renderAST(n.child);
@@ -1080,7 +1080,7 @@ pub const SyntaxHighlighter = struct {
                                     .white_space = .pre,
                                 },
                                 .layout = .left_center,
-                                .padding = .l(12),
+                                .padding = .{ .left = 12 },
                                 .font_family = "DM Mono, monospace", // "IBM Plex Mono,monospace",
                             })({
                                 try highlighter.renderAST(n.child);

@@ -246,7 +246,7 @@ fn ErasedField(field: Field) Vapor.TextFieldBuilder(.pure) {
     return TextField(field_type)
         .fieldName(field.field_name)
         .font(14, 300, null)
-        .padding(.tblr(8, 8, 12, 12))
+        .padding(.xy(12, 8))
         .outline(.none)
         .background(.transparent)
         .fontFamily("Montserrat")
@@ -371,14 +371,14 @@ pub fn render(field: Field) void {
     const label_left: f32 = if (is_focused or field.trans_label) 12 + 12 else 12;
 
     const z_index: f32 = if (is_focused) 10 else 0;
-    const text_color: Vapor.Types.Color = if (is_focused) .palette(.tint) else .transparentizeHex(.palette(.text_color), 0.5);
+    const text_color: Vapor.Types.Color = if (is_focused) .palette(.tint) else .transparentize(.palette(.text_color), 0.5);
 
     // 3. Calculate Input Padding based on icons
     // We reserve ~40px of space if an icon is present
 
     container.border(.round(if (is_focused) .palette(.tint) else .palette(.border_color_light), .all(12)))
         .shadow(.{
-            .color = if (is_focused) .transparentizeHex(.palette(.tint), 0.2) else .transparent,
+            .color = if (is_focused) .transparentize(.palette(.tint), 0.2) else .transparent,
             .spread = 3,
         })
         .children({
@@ -407,9 +407,9 @@ pub fn render(field: Field) void {
                     text_field
                         // OVERRIDE Padding here to account for icons
                         .pos(.absolute)
-                        .onEventCtx(.focus, handleFocus, stable_id)
-                        .onEventCtx(.blur, handleBlur, stable_id)
-                        .onEventCtx(.input, stringCallback, Callback{ .value = value, .on_change = field.on_change })
+                        .onEvent(.focus, handleFocus, stable_id)
+                        .onEvent(.blur, handleBlur, stable_id)
+                        .onEvent(.input, stringCallback, Callback{ .value = value, .on_change = field.on_change })
                         .border(.none)
                         .width(.percent(100))
                         .val(value.string)
@@ -420,11 +420,11 @@ pub fn render(field: Field) void {
                     text_field
                         // OVERRIDE Padding here to account for icons
                         .pos(.absolute)
-                        .onEventCtx(.focus, handleFocus, stable_id)
-                        .onEventCtx(.blur, handleBlur, stable_id)
+                        .onEvent(.focus, handleFocus, stable_id)
+                        .onEvent(.blur, handleBlur, stable_id)
                         .border(.none)
                         .width(.percent(100))
-                        .onEventCtx(.input, telephoneCallback, Callback{ .value = value, .on_change = field.on_change })
+                        .onEvent(.input, telephoneCallback, Callback{ .value = value, .on_change = field.on_change })
                         .val(value.telephone)
                         .end();
                 },
@@ -433,11 +433,11 @@ pub fn render(field: Field) void {
                     text_field
                         // OVERRIDE Padding here to account for icons
                         .pos(.absolute)
-                        .onEventCtx(.focus, handleFocus, stable_id)
-                        .onEventCtx(.blur, handleBlur, stable_id)
+                        .onEvent(.focus, handleFocus, stable_id)
+                        .onEvent(.blur, handleBlur, stable_id)
                         .border(.none)
                         .width(.percent(100))
-                        .onEventCtx(.input, creditCardCallback, Callback{ .value = value, .on_change = field.on_change })
+                        .onEvent(.input, creditCardCallback, Callback{ .value = value, .on_change = field.on_change })
                         .val(value.credit_card)
                         .config(.{ .max = 19 })
                         .end();
@@ -447,10 +447,10 @@ pub fn render(field: Field) void {
                     text_field
                         // OVERRIDE Padding here to account for icons
                         .pos(.absolute)
-                        .onEventCtx(.focus, handleFocus, stable_id)
-                        .onEventCtx(.blur, handleBlur, stable_id)
+                        .onEvent(.focus, handleFocus, stable_id)
+                        .onEvent(.blur, handleBlur, stable_id)
                         .width(.percent(100))
-                        .onEventCtx(.input, emailCallback, Callback{ .value = value, .on_change = field.on_change })
+                        .onEvent(.input, emailCallback, Callback{ .value = value, .on_change = field.on_change })
                         .border(.none)
                         .val(value.email)
                         .end();
@@ -460,10 +460,10 @@ pub fn render(field: Field) void {
                     text_field
                         // OVERRIDE Padding here to account for icons
                         .pos(.absolute)
-                        .onEventCtx(.focus, handleFocus, stable_id)
-                        .onEventCtx(.blur, handleBlur, stable_id)
+                        .onEvent(.focus, handleFocus, stable_id)
+                        .onEvent(.blur, handleBlur, stable_id)
                         .width(.percent(100))
-                        .onEventCtx(.input, passwordCallback, Callback{ .value = value, .on_change = field.on_change })
+                        .onEvent(.input, passwordCallback, Callback{ .value = value, .on_change = field.on_change })
                         .border(.none)
                         .val(value.password)
                         .end();
@@ -473,11 +473,11 @@ pub fn render(field: Field) void {
                     text_field
                         // OVERRIDE Padding here to account for icons
                         .pos(.absolute)
-                        .onEventCtx(.focus, handleFocus, stable_id)
-                        .onEventCtx(.blur, handleBlur, stable_id)
+                        .onEvent(.focus, handleFocus, stable_id)
+                        .onEvent(.blur, handleBlur, stable_id)
                         .border(.none)
                         .width(.percent(100))
-                        .onEventCtx(.input, numberCallback, Callback{ .value = value, .on_change = field.on_change })
+                        .onEvent(.input, numberCallback, Callback{ .value = value, .on_change = field.on_change })
                         .border(.none)
                         .config(field.config)
                         .end();

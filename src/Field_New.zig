@@ -268,7 +268,7 @@ fn ErasedField(field: Field, field_id: []const u8) Vapor.TextFieldBuilder(.pure)
         .id(field_id)
         .fieldName(field.field_name)
         .font(14, 300, null)
-        .padding(.tblr(8, 8, 12, 12))
+        .padding(.xy(12, 8))
         .outline(.none, null)
         .background(.transparent)
         .fontFamily("Montserrat")
@@ -387,7 +387,7 @@ fn createValue(stable_id: []const u8, field_type: FieldType, default_value: ?Def
     };
 }
 
-fn renderLabel(label: []const u8, label_left: f32, trans: f32, scale: f32, z_index: f32, text_color: Vapor.Types.Color) Vapor.BuilderClose(.pure) {
+fn renderLabel(label: []const u8, label_left: f32, trans: f32, scale: f32, z_index: f32, text_color: Vapor.Types.Color) Vapor.Builder(.pure) {
     return Label(label)
         .background(background)
         .pos(.{ .left = .px(label_left), .type = .absolute })
@@ -422,14 +422,14 @@ pub fn render(field: Field) void {
     // We reserve ~40px of space if an icon is present
 
     const active_background_color: Vapor.Types.Color = if (field.backgroud) |bg| bg else .palette(.tint);
-    const text_color: Vapor.Types.Color = if (is_focused) active_background_color else .transparentizeHex(.palette(.text_color), 0.8);
+    const text_color: Vapor.Types.Color = if (is_focused) active_background_color else .transparentize(.palette(.text_color), 0.8);
 
     container.border(.round(if (is_focused) active_background_color else .palette(.border_color_light), .all(12)))
-        .shadow(.glow(3, if (is_focused) .transparentizeHex(active_background_color, 0.2) else .transparent))
+        .shadow(.glow(3, if (is_focused) .transparentize(active_background_color, 0.2) else .transparent))
         .onDestroy(destroy, .{stable_id})
         .children({
         const field_id = Vapor.fmtln("{s}_{s}", .{ field.field_name, stable_id });
-        var label_component: ?Vapor.BuilderClose(.pure) = null;
+        var label_component: ?Vapor.Builder(.pure) = null;
         if (field.label) |label| {
             label_component = renderLabel(label, label_left, trans, scale, z_index, text_color);
             label_component.?.fieldName(field_id).end();
@@ -444,8 +444,8 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .border(.none)
                     .width(.percent(100))
                     .bind(value.string)
@@ -456,11 +456,11 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .border(.none)
                     .width(.percent(100))
-                    .onEventCtx(.input, expiryCallback, .{value.string})
+                    .onEvent(.input, expiryCallback, .{value.string})
                     .val(value.string)
                     .placeholder(if (field.placeholder) |placeholder| placeholder else "")
                     .end();
@@ -469,8 +469,8 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .border(.none)
                     .width(.percent(100))
                     .bind(value.string)
@@ -489,11 +489,11 @@ pub fn render(field: Field) void {
 
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .border(.none)
                     .width(.percent(100))
-                    .onEventCtx(.input, telephoneCallback, .{value.telephone})
+                    .onEvent(.input, telephoneCallback, .{value.telephone})
                     .val(value.telephone)
                     .placeholder(if (field.placeholder) |placeholder| placeholder else "")
                     .end();
@@ -502,11 +502,11 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .border(.none)
                     .width(.percent(100))
-                    .onEventCtx(.input, creditCardCallback, .{value.credit_card})
+                    .onEvent(.input, creditCardCallback, .{value.credit_card})
                     .val(value.credit_card)
                     .config(.{ .max = 19 })
                     .placeholder(if (field.placeholder) |placeholder| placeholder else "")
@@ -516,8 +516,8 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .width(.percent(100))
                     .bind(value.email)
                     .border(.none)
@@ -528,8 +528,8 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .width(.percent(100))
                     .bind(value.password)
                     .border(.none)
@@ -540,8 +540,8 @@ pub fn render(field: Field) void {
                 text_field
                     // OVERRIDE Padding here to account for icons
                     .pos(.absolute)
-                    .onEventCtx(.focus, handleFocus, .{stable_id})
-                    .onEventCtx(.blur, handleBlur, .{stable_id})
+                    .onEvent(.focus, handleFocus, .{stable_id})
+                    .onEvent(.blur, handleBlur, .{stable_id})
                     .border(.none)
                     .width(.percent(100))
                     .bind(value.number)

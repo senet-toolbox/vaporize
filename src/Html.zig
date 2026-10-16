@@ -376,7 +376,6 @@ pub fn main() !void {
     var buffer: [4096]u8 = undefined;
     var writer = std.fs.File.stdout().writer(&buffer);
     var stdout = &writer.interface;
- 
 
     const html_source =
         \\<!DOCTYPE html>
@@ -394,9 +393,7 @@ pub fn main() !void {
     var parser = Parser.init(allocator, html_source);
     const root = try parser.parse();
 
-
     try stdout.print("--- HTML AST ---\n", .{});
     try traversePrint(root, stdout, 0);
     stdout.flush() catch {};
 }
-

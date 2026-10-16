@@ -777,7 +777,7 @@ pub const SyntaxHighlighter = struct {
     show_toolbar: bool = false,
     scroll_top: f32 = 0,
     viewport_height: f32 = 0,
-    container_ref: Vapor.Binded = .{},
+    container_ref: Vapor.Element = .{},
     total_height: f32 = 0,
 
     // ========================================================================
@@ -2690,7 +2690,7 @@ pub const SyntaxHighlighter = struct {
                         Row()
                             .padding(.all(8))
                             .layout(.center)
-                            .background(.transparentizeHex(.black, 0.2))
+                            .background(.transparentize(.black, 0.2))
                             .children({
                             Vapor.Svg(.{ .svg = svg_bug }).style(&.{
                                 .size = .{ .height = .px(16), .width = .px(16) },
@@ -2727,7 +2727,7 @@ pub const SyntaxHighlighter = struct {
     pub fn render(highlighter: *SyntaxHighlighter) !void {
         Row().style(&.{
             .position = .relative,
-            .size = .square_percent(100),
+            .size = .squarePercent(100),
             .direction = .column,
             .layout = .{ .x = .start, .y = .start },
         }).children({
@@ -2736,7 +2736,7 @@ pub const SyntaxHighlighter = struct {
             }
 
             Vapor.Stack().style(&.{
-                .size = .square_percent(100),
+                .size = .squarePercent(100),
                 .direction = .column,
                 .layout = .{ .x = .start, .y = .start },
                 .padding = .all(12),
@@ -2762,10 +2762,10 @@ pub const SyntaxHighlighter = struct {
                     .ariaLabel("copy-code-button")
                     .style(&.{
                         .position = .relative,
-                        .size = .square_px(22),
+                        .size = .squarePx(22),
                         .transition = .{ .duration = 100 },
                         .visual = .{
-                            .border_radius = .all(4),
+                            .border = .{ .radius = .all(4) },
                             .background = .transparent,
                             .text_color = .transparentize(.black, 0.2),
                             .cursor = .pointer,
@@ -2823,7 +2823,7 @@ pub const SyntaxHighlighter = struct {
                     .size = .h(.px(22.5)),
                     .visual = .{ .white_space = .pre },
                     .layout = .left_center,
-                    .padding = .left(12),
+                    .padding = .{ .left = 12 },
                     .font_family = "DM Mono, monospace",
                 }).children({
                     // Render each coalesced span
@@ -2882,7 +2882,7 @@ pub const SyntaxHighlighter = struct {
                 .root => {
                     Row().style(&.{
                         .position = .relative,
-                        .size = .square_percent(100),
+                        .size = .squarePercent(100),
                         .direction = .column,
                         .layout = .{ .x = .start, .y = .start },
                     }).children({
@@ -2891,8 +2891,8 @@ pub const SyntaxHighlighter = struct {
                         }
 
                         Row().style(&.{
-                            .size = .square_percent(100),
-                            .scroll = .scroll_x(),
+                            .size = .squarePercent(100),
+                            .scroll = .scrollX(),
                             .direction = .column,
                             .layout = .{ .x = .start, .y = .start },
                             .padding = .all(12),
@@ -2910,7 +2910,7 @@ pub const SyntaxHighlighter = struct {
                             .size = .h(.px(18)),
                             .visual = .{ .white_space = .pre, .background = .hex("#00FF00") },
                             .layout = .left_center,
-                            .padding = .l(24),
+                            .padding = .{ .left = 24 },
                             .font_family = "DM Mono, monospace",
                         }).children({
                             try highlighter.renderAST(n.child);
@@ -2920,7 +2920,7 @@ pub const SyntaxHighlighter = struct {
                             .size = .h(.px(18)),
                             .visual = .{ .white_space = .pre, .background = .hex("#FF0000") },
                             .layout = .left_center,
-                            .padding = .l(24),
+                            .padding = .{ .left = 24 },
                             .font_family = "DM Mono, monospace",
                         }).children({
                             try highlighter.renderAST(n.child);
@@ -2939,7 +2939,7 @@ pub const SyntaxHighlighter = struct {
                                 .size = .h(.px(22.5)),
                                 .visual = .{ .white_space = .pre },
                                 .layout = .left_center,
-                                .padding = .l(12),
+                                .padding = .{ .left = 12 },
                                 .font_family = "DM Mono, monospace",
                             }).children({
                                 try highlighter.renderAST(n.child);

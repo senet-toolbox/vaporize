@@ -60,14 +60,14 @@ pub fn Form(comptime T: type) type {
         pub fn compile(vaporize: *Vaporize) !void {
             const allocator = Vapor.arena(.persist);
             const inner_self = allocator.create(Self) catch |err| {
-                Vapor.printErr("Error: {any}\n", .{err});
+                Vapor.print(.err, "Error: {any}\n", .{err});
                 unreachable;
             };
             const style = if (Self.global_style) |s| s else Self.default_style_config;
             inner_self.* = try Self.init(allocator, style);
             const inner_form = try allocator.create(InnerForm);
             const validation_error = allocator.create(ValidationResult) catch |err| {
-                Vapor.printErr("Error: {any}\n", .{err});
+                Vapor.print(.err, "Error: {any}\n", .{err});
                 unreachable;
             };
             validation_error.* = ValidationResult.init(allocator);
@@ -92,7 +92,7 @@ pub fn Form(comptime T: type) type {
             vaporize.self.?.root = root;
             field_index = 0;
             vaporize.self.?.generateForm(vaporize.self.?.root, "root", T, {}, T, vaporize.inner_form.?) catch |err| {
-                Vapor.printErr("Error: {any}\n", .{err});
+                Vapor.print(.err, "Error: {any}\n", .{err});
             };
         }
         pub fn render(vaporize: *const Vaporize) void {
@@ -119,7 +119,7 @@ pub fn Form(comptime T: type) type {
                             .layout(.top_left)
                             .direction(.column)
                             .spacing(8)
-                            .padding(.tb(8, 8))
+                            .padding(.vertical(8))
                             .width(.percent(100))
                             .children({
                             self.traverseForm(n.child, .{}, value) catch {
@@ -156,14 +156,14 @@ pub fn Form(comptime T: type) type {
             const on_submit = @field(form_closure, "on_submit");
 
             const result: *ValidationResult = form_closure.validation_error orelse {
-                Vapor.printErr("validation_error not defined\n", .{});
+                Vapor.print(.err, "validation_error not defined\n", .{});
                 return;
             };
             errdefer result.deinit();
 
             // Check if validations exist
             if (!@hasDecl(@TypeOf(form_value.*), "__validations")) {
-                Vapor.printErr("No validations defined for form\n", .{});
+                Vapor.print(.err, "No validations defined for form\n", .{});
                 return;
             }
 
@@ -202,7 +202,7 @@ pub fn Form(comptime T: type) type {
 
                         // Validate the field
                         const field_valid = validateField(field_name, field_value, validation, result) catch |err| {
-                            Vapor.printErr("Validation failed: {any}\n", .{err});
+                            Vapor.print(.err, "Validation failed: {any}\n", .{err});
                             return;
                         };
                         if (!field_valid) {
@@ -211,14 +211,14 @@ pub fn Form(comptime T: type) type {
                             if (validation.match) {
                                 const target_field_value = @field(section, validation.target_field);
                                 const match_valid = matchField(field_value, target_field_value);
-                                Vapor.printErr("Validation failed: {any} {any}\n", .{ match_valid, validation.match });
+                                Vapor.print(.err, "Validation failed: {any} {any}\n", .{ match_valid, validation.match });
                                 if (!match_valid) {
                                     result.valid = false;
                                     result.errors.append(.{
                                         .field = field_name,
                                         .message = "Values do not match",
                                     }) catch |err| {
-                                        Vapor.printErr("Error: {any}\n", .{err});
+                                        Vapor.print(.err, "Error: {any}\n", .{err});
                                     };
                                 }
                             } else {
@@ -226,7 +226,7 @@ pub fn Form(comptime T: type) type {
                                     .field = field_name,
                                     .message = "",
                                 }) catch |err| {
-                                    Vapor.printErr("Error: {any}\n", .{err});
+                                    Vapor.print(.err, "Error: {any}\n", .{err});
                                 };
                             }
                         }
@@ -245,7 +245,7 @@ pub fn Form(comptime T: type) type {
 
                     // Validate the field
                     const field_valid = validateField(field_name, field_value, validation, result) catch |err| {
-                        Vapor.printErr("Validation failed: {any}\n", .{err});
+                        Vapor.print(.err, "Validation failed: {any}\n", .{err});
                         return;
                     };
                     if (!field_valid) {
@@ -254,14 +254,14 @@ pub fn Form(comptime T: type) type {
                         if (validation.match) {
                             const target_field_value = @field(parsed_form, validation.target_field);
                             const match_valid = matchField(field_value, target_field_value);
-                            Vapor.printErr("Validation failed: {any} {any}\n", .{ match_valid, validation.match });
+                            Vapor.print(.err, "Validation failed: {any} {any}\n", .{ match_valid, validation.match });
                             if (!match_valid) {
                                 result.valid = false;
                                 result.errors.append(.{
                                     .field = field_name,
                                     .message = "Values do not match",
                                 }) catch |err| {
-                                    Vapor.printErr("Error: {any}\n", .{err});
+                                    Vapor.print(.err, "Error: {any}\n", .{err});
                                 };
                             }
                         } else {
@@ -269,7 +269,7 @@ pub fn Form(comptime T: type) type {
                                 .field = field_name,
                                 .message = "",
                             }) catch |err| {
-                                Vapor.printErr("Error: {any}\n", .{err});
+                                Vapor.print(.err, "Error: {any}\n", .{err});
                             };
                         }
                     }

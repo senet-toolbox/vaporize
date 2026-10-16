@@ -316,7 +316,7 @@ pub fn init(allocator: Allocator, style_config: StyleConfig) !Self {
         did_init = true;
     }
     const root = allocator.create(Node) catch |err| {
-        Vapor.printErr("Could Not create Root Node", .{});
+        Vapor.print(.err, "Could Not create Root Node", .{});
         return err;
     };
     root.* = .{
@@ -1667,20 +1667,20 @@ pub const default_style_config = StyleConfig{};
 pub var global_style: ?StyleConfig = null;
 pub const StyleConfig = struct {
     code_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .hex("#212121"), .background = .white } },
-    switch_style: Vapor.Types.Style = .{ .visual = .{ .background = .transparentizeHex(.palette(.tint), 0.7) } },
+    switch_style: Vapor.Types.Style = .{ .visual = .{ .background = .transparentize(.palette(.tint), 0.7) } },
     text_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .hex("#212121") } },
     heading_style: Vapor.Types.Style = .{ .visual = .{ .text_color = .hex("#333333") } },
     text_field_style: Vapor.Types.Style = .{
         .size = .hw(.px(38), .percent(100)),
-        .padding = .tblr(4, 4, 8, 8),
+        .padding = .xy(8, 4),
         .font_family = "IBM Plex Mono,monospace",
         .interactive = .{
             .hover = .{
-                .border = .simple(.black),
+                .border = .thin(.black),
             },
         },
         .visual = .{
-            .border = .simple(.hex("#E1E1E1")),
+            .border = .thin(.hex("#E1E1E1")),
             .background = .palette(.tint),
             .outline = .none,
         },
@@ -1695,9 +1695,9 @@ pub const StyleConfig = struct {
     button_style: Vapor.Types.Style = .{
         .layout = .in_line,
         .size = .w(.percent(100)),
-        .padding = .tb(6, 6),
+        .padding = .vertical(6),
         .visual = .{
-            .border = .sharp(.solid, .hex("#FF0000")),
+            .border = .sharp(.all(1), .hex("#FF0000")),
             .text_color = .white,
             .background = .black,
         },
@@ -1707,38 +1707,37 @@ pub const StyleConfig = struct {
         .size = .w(.percent(100)),
         .margin = .{ .top = 32 },
         .visual = .{
-            .border = .round(.transparentizeHex(.palette(.background), 0.5), .all(4)),
-            .background = .transparentizeHex(.palette(.background), 0.9),
+            .border = .round(.transparentize(.palette(.background), 0.5), .all(4)),
+            .background = .transparentize(.palette(.background), 0.9),
             .cursor = .pointer,
             .font_size = 16,
             .text_color = .white,
             .new_shadow = Vapor.Types.NewShadow.init()
-                .inset(0, -2, .transparentizeHex(.palette(.background), 0.5))
-                .drop(0, 1, 3, .transparentizeHex(.palette(.background), 0.1)),
+                .inset(0, -2, .transparentize(.palette(.background), 0.5))
+                .drop(0, 1, 3, .transparentize(.palette(.background), 0.1)),
         },
         .transition = .{ .duration = 100 },
         .interactive = .{
             .hover = .{
                 .new_shadow = Vapor.Types.NewShadow.init()
-                    .inset(0, -2, .transparentizeHex(.black, 0))
-                    .drop(0, 1, 3, .transparentizeHex(.black, 0)),
+                    .inset(0, -2, .transparentize(.black, 0))
+                    .drop(0, 1, 3, .transparentize(.black, 0)),
             },
         },
-        .padding = .tblr(4, 4, 8, 8),
+        .padding = .xy(8, 4),
         .child_gap = 8,
         .font_family = "IBM Plex Sans,monospace",
     },
     struct_style: Vapor.Types.Style = .{
         .size = .w(.percent(100)),
-        .padding = .tb(6, 6),
+        .padding = .vertical(6),
     },
     table_style: Vapor.Types.Style = .{
         .size = .w(.percent(100)),
         .direction = .column,
-        .margin = .tb(16, 16),
+        .margin = .vertical(16),
         .visual = .{
-            .border = .simple(.hex("#E1E1E1")),
-            .border_radius = .all(4),
+            .border = .round(.hex("#E1E1E1"), .all(4)),
         },
     },
     table_header_style: Vapor.Types.Style = .{
@@ -1762,7 +1761,7 @@ pub const StyleConfig = struct {
         },
     },
     table_cell_style: Vapor.Types.Style = .{
-        .padding = .tblr(8, 8, 12, 12),
+        .padding = .xy(12, 8),
         .visual = .{
             .border = .bottom(1, .hex("#E1E1E1")),
         },
@@ -1828,7 +1827,7 @@ pub fn MarkDown(self: *Self, components: anytype) type {
         pub fn compile(markdown: *@This(), source_input: []const u8) !void {
             const tft = @typeInfo(@TypeOf(components));
             if (tft != .@"struct") {
-                Vapor.printErr("Invalid Tagged Functions {any}\n", .{@typeInfo(@TypeOf(components))});
+                Vapor.print(.err, "Invalid Tagged Functions {any}\n", .{@typeInfo(@TypeOf(components))});
                 return error.InvalidTaggedFunctions;
             }
 
@@ -2018,7 +2017,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                 current_closer = Box().style(&.{
                     .layout = .in_line,
                     .size = .w(.percent(100)),
-                    .padding = .tb(12, 12),
+                    .padding = .vertical(12),
                 });
                 node_style.level = n.data.heading.level;
             },
@@ -2032,7 +2031,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                 const src = n.data.image.src;
                 Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .padding = .tb(16, 16),
+                    .padding = .vertical(16),
                     .layout = .center,
                 }).children({
                     Graphic(.{ .src = src }).style(&.{
@@ -2047,7 +2046,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                 const src = n.data.image.src;
                 current_closer = Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .padding = .tb(32, 32),
+                    .padding = .vertical(32),
                     .layout = .center,
                 });
                 Image(.{ .src = src }).style(&.{
@@ -2068,7 +2067,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                 const content = n.data.snippet.content;
                 Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .fit },
-                    .margin = .tb(4, 4),
+                    .margin = .vertical(4),
                     .layout = .center,
                 }).children({
                     snippet.code(content);
@@ -2078,7 +2077,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                 current_closer = Box().style(&.{
                     .layout = .in_line,
                     .size = .w(.percent(100)),
-                    .padding = .tb(6, 6),
+                    .padding = .vertical(6),
                 });
             },
             .Text => {
@@ -2088,18 +2087,18 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                             Heading(node_style.level, n.data.text.content).style(&.{
                                 .visual = .{ .font_weight = 700, .font_size = 42 },
                                 .font_family = "IBM Plex Sans,sans-serif",
-                                .margin = .tb(16, 0),
+                                .margin = .{ .top = 16 },
                             }).end();
                         },
                         2 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 400, .font_size = 28 },
                             .font_family = "IBM Plex Sans,sans-serif",
-                            .margin = .tb(16, 0),
+                            .margin = .{ .top = 16 },
                         }).end(),
                         3 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 600, .font_size = 24 },
                             .font_family = "IBM Plex Sans,sans-serif",
-                            .margin = .tb(12, 0),
+                            .margin = .{ .top = 12 },
                         }).end(),
                         4 => Heading(node_style.level, n.data.text.content).style(&.{
                             .visual = .{ .font_weight = 400, .font_size = 20 },
@@ -2205,7 +2204,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
 
                     const text_color: Vapor.Types.Color = switch (section_depth) {
                         0 => .black, // Top level: normal
-                        else => .transparentizeHex(.black, 0.6), // Subsection: muted/gray
+                        else => .transparentize(.black, 0.6), // Subsection: muted/gray
                     };
 
                     is_section = true;
@@ -2216,10 +2215,10 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                         .direction = .row,
                         .size = .hw(.fit, .percent(100)),
                         .child_gap = 16,
-                        .margin = .tb(0, 0),
-                        .padding = if (section_depth > 1) .left(16) else .all(0),
+                        .margin = .none,
+                        .padding = if (section_depth > 1) .{ .left = 16 } else .all(0),
                         .visual = .{
-                            .border = if (section_depth > 1) .sharp(.left(1), .black) else .none,
+                            .border = if (section_depth > 1) .sharp(.{ .left = 1 }, .black) else .none,
                         },
                     });
 
@@ -2232,7 +2231,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                             .font_style = if (node_style.is_italic) .italic else null,
                             .text_color = text_color,
                         },
-                        .margin = .tb(if (section_depth > 1) 12 else 24, 0),
+                        .margin = .{ .top = if (section_depth > 1) 12 else 24 },
                     }).end();
                 } else {
                     skip = true;
@@ -2252,7 +2251,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                         .font_weight = if (style.is_bold) 600 else 400,
                         .font_style = if (style.is_italic) .italic else null,
                     },
-                    .margin = .tb(0, 0),
+                    .margin = .none,
                 }).end();
                 const t = getUnderlyingType(@TypeOf(value));
                 if (@typeInfo(t) == .pointer) {
@@ -2280,7 +2279,7 @@ pub fn traverseForm(self: *Self, node: ?*Node, style: Style, value: anytype) !vo
                 const title = Vapor.utils.stringReplace(Vapor.utils.firstLetterToUpper(n.data.textarea.title, .frame), "_", " ", .frame);
                 var label: Vapor.Builder(.pure) = Label(title);
 
-                var text_area: Vapor.TextAreaBuilder(.pure) = TextArea.render(.{
+                var text_area: Vapor.TextFieldBuilder(.pure) = TextArea.render(.{
                     .label = title,
                     .field_name = n.data.textarea.title,
                 });
@@ -2626,7 +2625,7 @@ fn CodeBox(code: *SyntaxHighlighter, title: []const u8) void {
             });
             Center().width(.percent(100))
                 .height(.percent(94))
-                .scroll(.scroll_y())
+                .scroll(.scrollY())
                 .border(.round(.hex("#383735"), .all(6)))
                 .background(.hex("#282828"))
                 .children({
@@ -2662,7 +2661,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 current_closer = Box().style(&.{
                     .layout = .in_line,
                     .size = .w(.percent(100)),
-                    .padding = .tb(12, 12),
+                    .padding = .vertical(12),
                 });
                 node_style.level = n.data.heading.level;
             },
@@ -2674,8 +2673,8 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .style(&Vapor.Types.Style{
                     .layout = .in_line,
                     .size = .w(.percent(100)),
-                    .padding = .left(12),
-                    .visual = .{ .border = .solid(.left(3), .transparentize(.black, 0.2), .all(0)) },
+                    .padding = .{ .left = 12 },
+                    .visual = .{ .border = .solid(.{ .left = 3 }, .transparentize(.black, 0.2), .all(0)) },
                 });
             },
             .HorizontalRule => {
@@ -2693,7 +2692,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 const src = n.data.image.src;
                 Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .padding = .tb(16, 16),
+                    .padding = .vertical(16),
                     .layout = .center,
                 }).children({
                     Graphic(.{ .src = src }).style(&.{
@@ -2708,7 +2707,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 const src = n.data.image.src;
                 current_closer = Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .padding = .tb(32, 32),
+                    .padding = .vertical(32),
                     .layout = .center,
                 });
                 Image(.{ .src = src }).style(&.{
@@ -2721,7 +2720,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .child_gap = 4,
                     .direction = .column,
                     .size = .hw(.percent(100), .grow),
-                    .margin = .tb(0, 48),
+                    .margin = .{ .bottom = 48 },
                     .layout = .{},
                 });
             },
@@ -2730,7 +2729,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 const content = n.data.snippet.content;
                 Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .fit },
-                    .margin = .tb(4, 4),
+                    .margin = .vertical(4),
                     .layout = .center,
                 }).children({
                     snippet.code(content);
@@ -2821,7 +2820,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .size = .w(.percent(100)),
                     .child_gap = 8,
                     .list_style = n.data.list.list_type,
-                    .padding = .left(32),
+                    .padding = .{ .left = 32 },
                     .visual = .{
                         .text_color = self.style_config.text_style.visual.?.text_color,
                     },
@@ -2832,7 +2831,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 editor.show_toolbar = true;
                 Box().style(&.{
                     .size = .{ .width = .percent(100), .height = .percent(100) },
-                    .margin = .tb(16, 32),
+                    .margin = .{ .top = 16, .bottom = 32 },
                     .layout = .center,
                     .visual = .{
                         // .background = self.style_config.code_style.visual.?.background,
@@ -2908,12 +2907,11 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 current_closer = Box().style(&.{
                     .size = .w(.percent(100)),
                     .direction = .column,
-                    .margin = .tb(16, 16),
+                    .margin = .vertical(16),
                     .visual = .{
-                        .border = .sharp(.tblr(1, 0, 1, 1), .black),
-                        .border_radius = .all(4),
+                        .border = .solid(.{ .top = 1, .left = 1, .right = 1 }, .black, .all(4)),
                     },
-                    .scroll = .scroll_x(),
+                    .scroll = .scrollX(),
                 });
             },
 
@@ -2940,7 +2938,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 const first_column_width: Vapor.Types.Sizing = if (column_count > 3 and cell_data.first_column) .percent(20) else .grow;
                 current_closer = Box().style(&.{
                     .size = .hw(.fit, first_column_width),
-                    .padding = .tblr(8, 8, 12, 12),
+                    .padding = .xy(12, 8),
                     .layout = alignment,
                     .visual = .{
                         .font_weight = if (cell_data.is_header) 600 else 400,
@@ -2953,7 +2951,7 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 current_closer = Box().style(&.{
                     .layout = .right_center,
                     .size = .w(.percent(100)),
-                    .padding = .tb(6, 6),
+                    .padding = .vertical(6),
                 });
             },
             .StyledContainer => {
@@ -2965,11 +2963,11 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                 else if (std.mem.eql(u8, class, "assistant"))
                     .transparent
                 else if (std.mem.eql(u8, class, "success"))
-                    .transparentizeHex(.green, 0.9)
+                    .transparentize(.green, 0.9)
                 else if (std.mem.eql(u8, class, "warning"))
-                    .transparentizeHex(.yellow, 0.9)
+                    .transparentize(.yellow, 0.9)
                 else
-                    .transparentizeHex(.blue, 0.9);
+                    .transparentize(.blue, 0.9);
 
                 const text_color: Vapor.Types.Color = if (std.mem.eql(u8, class, "user"))
                     .white
@@ -2980,12 +2978,11 @@ pub fn traverse(self: *Self, node: ?*Node, style: Style, value: anytype) !void {
                     .size = .w(.percent(100)),
                     .direction = .column,
                     .padding = .all(16),
-                    .margin = .tb(8, 8),
+                    .margin = .vertical(8),
                     .child_gap = 8,
                     .visual = .{
                         .background = bg,
-                        .border_radius = .all(12),
-                        .border = .sharp(.all(1), .transparentize(.black, 0.1)),
+                        .border = .solid(.all(1), .transparentize(.black, 0.1), .all(12)),
                         .text_color = text_color,
                     },
                 });
