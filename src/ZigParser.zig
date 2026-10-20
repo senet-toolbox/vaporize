@@ -775,6 +775,10 @@ pub const SyntaxHighlighter = struct {
     use_cpy_btn: bool = true,
     // FIXED: Use composite key (line * MAX_COLUMNS + column) instead of line + column
     errors: std.AutoHashMap(usize, ErrorAnnotation),
+    /// Diagnostics from outside the editor, such as the compiler's.
+    /// `recompile` redoes `errors` from the editor's own checks; these are
+    /// put back each time, until `clearExternalErrors`.
+    external_errors: std.AutoHashMap(usize, ErrorAnnotation),
     show_toolbar: bool = false,
     scroll_top: f32 = 0,
     viewport_height: f32 = 0,
@@ -793,6 +797,7 @@ pub const SyntaxHighlighter = struct {
             .allocator = allocator,
             .root = null,
             .errors = std.AutoHashMap(usize, ErrorAnnotation).init(allocator),
+            .external_errors = std.AutoHashMap(usize, ErrorAnnotation).init(allocator),
             .coalesced_lines = null,
         };
     }
@@ -805,6 +810,7 @@ pub const SyntaxHighlighter = struct {
             self.allocator.free(lines);
         }
         self.errors.deinit();
+        self.external_errors.deinit();
     }
 
     pub fn parse(self: *SyntaxHighlighter, source: []const u8) !void {
@@ -1334,6 +1340,7 @@ pub const SyntaxHighlighter = struct {
     // ========================================================================
     pub fn validateAST(self: *SyntaxHighlighter) !void {
         self.errors.clearRetainingCapacity();
+        try self.restoreExternalErrors();
 
         if (self.root == null) return;
 
@@ -2542,6 +2549,7 @@ pub const SyntaxHighlighter = struct {
 
     pub fn validateJSON(self: *SyntaxHighlighter) !void {
         self.errors.clearRetainingCapacity();
+        try self.restoreExternalErrors();
 
         if (self.root == null) return;
 
@@ -2663,6 +2671,23 @@ pub const SyntaxHighlighter = struct {
     }
 
     // FIXED: Use collision-free composite key
+    /// Marks the token starting at `line` and `column` (1-based, as the
+    /// Zig compiler counts) with `message`, until `clearExternalErrors`.
+    /// Shown from the next `recompile`. `message` must outlive the mark.
+    pub fn addExternalError(self: *SyntaxHighlighter, line: usize, column: usize, message: []const u8) !void {
+        const location: ErrorLocation = .{ .line = line, .column = column };
+        try self.external_errors.put(location.toKey(), .{ .line = line, .column = column, .message = message });
+    }
+
+    pub fn clearExternalErrors(self: *SyntaxHighlighter) void {
+        self.external_errors.clearRetainingCapacity();
+    }
+
+    fn restoreExternalErrors(self: *SyntaxHighlighter) !void {
+        var it = self.external_errors.iterator();
+        while (it.next()) |entry| try self.errors.put(entry.key_ptr.*, entry.value_ptr.*);
+    }
+
     pub fn addError(self: *SyntaxHighlighter, token: Token, message: []const u8) !void {
         const key = ErrorLocation.fromToken(token).toKey();
         try self.errors.put(key, .{
