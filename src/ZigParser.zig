@@ -2837,9 +2837,10 @@ pub const SyntaxHighlighter = struct {
                 .padding(.all(12))
                 .height(.percent(100))
                 .width(.percent(100))
-                // Code wider or taller than its box scrolls. A box sized to
-                // fit its code only ever scrolls sideways.
-                .scroll(.{ .y = .scroll, .x = .scroll });
+                // Code wider or taller than its box scrolls, with scrollbars
+                // only then (`.scroll` would show them always). A box sized
+                // to fit its code only ever scrolls sideways.
+                .inlineStyle("overflow: auto;", .{});
 
             if (highlighter.scrolling_enabled) {
                 Stack = Stack
@@ -2872,7 +2873,7 @@ pub const SyntaxHighlighter = struct {
                 .layout = .x_even_center,
             }).children({
                 Button(copy, .{highlighter})
-                    .ariaLabel("copy-code-button")
+                    .ariaLabel("Copy code")
                     .pos(.relative)
                     .duration(100)
                     .radius(.all(4))
@@ -2934,8 +2935,9 @@ pub const SyntaxHighlighter = struct {
                     .fontFamily("DM Mono, monospace")
                     .width(.px(24))
                     // A long line would squeeze the numbers and start
-                    // further left than the others.
-                    .inlineStyle("flex-shrink: 0;", .{})
+                    // further left than the others. Selecting code leaves
+                    // them out.
+                    .inlineStyle("flex-shrink: 0; user-select: none;", .{})
                     .end(); // Line content - ONE box containing coalesced spans
 
                 Row().style(&.{
