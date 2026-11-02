@@ -2837,7 +2837,9 @@ pub const SyntaxHighlighter = struct {
                 .padding(.all(12))
                 .height(.percent(100))
                 .width(.percent(100))
-                .scroll(.{ .y = if (highlighter.scrolling_enabled) .scroll else .hidden, .x = if (highlighter.scrolling_enabled) .scroll else .hidden });
+                // Code wider or taller than its box scrolls. A box sized to
+                // fit its code only ever scrolls sideways.
+                .scroll(.{ .y = .scroll, .x = .scroll });
 
             if (highlighter.scrolling_enabled) {
                 Stack = Stack
@@ -2931,6 +2933,9 @@ pub const SyntaxHighlighter = struct {
                     .font(14, 600, .transparentize(.palette(.code_text_color), 0.2))
                     .fontFamily("DM Mono, monospace")
                     .width(.px(24))
+                    // A long line would squeeze the numbers and start
+                    // further left than the others.
+                    .inlineStyle("flex-shrink: 0;", .{})
                     .end(); // Line content - ONE box containing coalesced spans
 
                 Row().style(&.{
